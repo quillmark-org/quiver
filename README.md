@@ -66,11 +66,11 @@ await renderQuiverSamples(import.meta.url, {
   engine: new Quillmark(),
   Document,
 });
-// → writes ./quiver-preview/<name>@<version>.<fmt> + index.html
+// → writes ./preview/<name>@<version>.<fmt> + index.html
 ```
 
 It renders every quill's `example.md`, writes the artifacts to `outDir`
-(default `quiver-preview/`), and emits an `index.html` gallery. Quills
+(default `preview/`), and emits an `index.html` gallery. Quills
 without an `example.md` are skipped; a quill that throws is recorded as
 failed without aborting the run, so one broken quill never hides the rest.
 

@@ -18,7 +18,7 @@
  *     engine: new Quillmark(),
  *     Document,
  *   });
- *   // → open ./quiver-preview/index.html
+ *   // → open ./preview/index.html
  *
  * The example document is the `example.md` file inside each quill version
  * directory (`quills/<name>/<version>/example.md`). Quills without one are
@@ -34,7 +34,7 @@ import type { QuillmarkLike } from "./engine-types.js";
 const EXAMPLE_FILE = "example.md";
 
 /** Default directory rendered artifacts are written to. */
-const DEFAULT_OUT_DIR = "quiver-preview";
+const DEFAULT_OUT_DIR = "preview";
 
 /**
  * Structural shape of the `Document` class from `@quillmark/wasm`. Only the
@@ -67,7 +67,7 @@ export interface RenderQuiverSamplesOptions {
   engine: QuillmarkLike;
   /** The `Document` class from `@quillmark/wasm`. */
   Document: DocumentFactoryLike;
-  /** Directory to write rendered artifacts into. Default: `quiver-preview`. */
+  /** Directory to write rendered artifacts into. Default: `preview`. */
   outDir?: string;
   /** Force an output format (`pdf`/`svg`/`png`/`txt`). Default: engine's choice. */
   format?: string;
