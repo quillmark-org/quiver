@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { renderQuiverSamples } from "../preview.js";
-import type { QuillmarkLike } from "../engine-types.js";
+import type { Quillmark } from "@quillmark/wasm";
 
 // Fixture: `memo` and `plain` both render via their example documents.
 const PREVIEW_FIXTURE = fileURLToPath(
@@ -28,7 +28,7 @@ afterEach(async () => {
 const MOCK_EXAMPLE = "---\nQUILL: mock\n---\n\n# Mock example";
 
 /** Mock engine whose quill echoes the seeded document markdown as artifact bytes. */
-function makeEngine(): QuillmarkLike {
+function makeEngine(): Quillmark {
   return {
     quill() {
       return {
@@ -46,7 +46,7 @@ function makeEngine(): QuillmarkLike {
         },
       };
     },
-  };
+  } as unknown as Quillmark;
 }
 
 describe("renderQuiverSamples", () => {
@@ -113,7 +113,7 @@ describe("renderQuiverSamples", () => {
 
   it("records a render failure without aborting the run", async () => {
     const outDir = makeOutDir();
-    const explodingEngine: QuillmarkLike = {
+    const explodingEngine = {
       quill() {
         return {
           seedDocument() {
@@ -124,7 +124,7 @@ describe("renderQuiverSamples", () => {
           },
         };
       },
-    };
+    } as unknown as Quillmark;
 
     const results = await renderQuiverSamples(PREVIEW_FIXTURE, {
       engine: explodingEngine,
@@ -143,7 +143,7 @@ describe("renderQuiverSamples", () => {
 
   it("surfaces every diagnostic from a failed render", async () => {
     const outDir = makeOutDir();
-    const explodingEngine: QuillmarkLike = {
+    const explodingEngine = {
       quill() {
         return {
           seedDocument() {
@@ -161,7 +161,7 @@ describe("renderQuiverSamples", () => {
           },
         };
       },
-    };
+    } as unknown as Quillmark;
 
     const results = await renderQuiverSamples(PREVIEW_FIXTURE, {
       engine: explodingEngine,

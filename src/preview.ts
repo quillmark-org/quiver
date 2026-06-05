@@ -32,32 +32,19 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Quiver } from "./node.js";
-import type { QuillmarkLike } from "./engine-types.js";
+import type {
+  Quillmark,
+  RenderResult,
+  Diagnostic,
+  OutputFormat,
+} from "@quillmark/wasm";
 
 /** Default directory rendered artifacts are written to. */
 const DEFAULT_OUT_DIR = "preview";
 
-/** One render output: a format-tagged byte payload. */
-interface ArtifactLike {
-  format: string;
-  bytes: Uint8Array;
-}
-
-/** A render-time diagnostic (warning/note). */
-interface DiagnosticLike {
-  severity: string;
-  message: string;
-}
-
-/** Structural shape of `RenderResult` from `@quillmark/wasm`. */
-interface RenderResultLike {
-  artifacts?: ArtifactLike[];
-  warnings?: DiagnosticLike[];
-}
-
 export interface RenderQuiverSamplesOptions {
   /** Quillmark engine instance (`new Quillmark()` from `@quillmark/wasm`). */
-  engine: QuillmarkLike;
+  engine: Quillmark;
   /** Directory to write rendered artifacts into. Default: `preview`. */
   outDir?: string;
   /** Force an output format (`pdf`/`svg`/`png`/`txt`). Default: engine's choice. */
@@ -148,7 +135,7 @@ function isSelected(
  * an error carries none.
  */
 function failureReasons(err: unknown): string[] {
-  const diagnostics = (err as { diagnostics?: DiagnosticLike[] }).diagnostics;
+  const diagnostics = (err as { diagnostics?: Diagnostic[] }).diagnostics;
   if (Array.isArray(diagnostics) && diagnostics.length > 0) {
     return diagnostics.map((d) => `${d.severity}: ${d.message}`);
   }
@@ -164,14 +151,14 @@ async function renderOne(
 ): Promise<RenderedSample> {
   const ref = `${name}@${version}`;
 
-  let result: RenderResultLike;
+  let result: RenderResult;
   try {
     const quill = await quiver.getQuill(ref, { engine: opts.engine });
     const doc = quill.seedDocument();
     result = quill.render(
       doc,
-      opts.format ? { format: opts.format } : undefined,
-    ) as RenderResultLike;
+      opts.format ? { format: opts.format as OutputFormat } : undefined,
+    );
   } catch (err) {
     return {
       ref,

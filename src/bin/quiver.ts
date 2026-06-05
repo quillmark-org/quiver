@@ -19,7 +19,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Quiver } from "../node.js";
 import { renderQuiverSamples } from "../preview.js";
-import type { QuillmarkLike } from "../engine-types.js";
+import type { Quillmark } from "@quillmark/wasm";
 
 // ---------------------------------------------------------------------------
 // Arg parsing helpers
@@ -49,12 +49,12 @@ function hasFlag(name: string): boolean {
 // Engine discovery
 // ---------------------------------------------------------------------------
 
-async function loadEngine(cwd: string): Promise<{ engine: QuillmarkLike }> {
+async function loadEngine(cwd: string): Promise<{ engine: Quillmark }> {
   // 1. Named export from quiver.config.js, if present.
   try {
     const cfg = await import(pathToFileURL(join(cwd, "quiver.config.js")).href);
     if (cfg.engine != null) {
-      return { engine: cfg.engine as QuillmarkLike };
+      return { engine: cfg.engine as Quillmark };
     }
   } catch {
     // File absent or incomplete — fall through to auto-discovery.
@@ -73,7 +73,7 @@ async function loadEngine(cwd: string): Promise<{ engine: QuillmarkLike }> {
     );
   }
   const wasm = (await import(pathToFileURL(wasmPath).href)) as {
-    Quillmark: new () => QuillmarkLike;
+    Quillmark: new () => Quillmark;
   };
   return { engine: new wasm.Quillmark() };
 }

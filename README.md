@@ -206,7 +206,3 @@ try {
 ```
 
 Error codes: `invalid_ref`, `quill_not_found`, `quiver_invalid`, `transport_error`.
-
-## Full specification
-
-See [PROGRAM.md](./PROGRAM.md) for the complete API surface, runtime artifact format specification, and design decisions.

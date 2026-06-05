@@ -20,7 +20,7 @@ import { describe, it, before } from "node:test";
 // `Quiver.fromDir` is callable at runtime, and gives us the augmented
 // static-method type signature.
 import { Quiver } from "./node.js";
-import type { QuillmarkLike } from "./engine-types.js";
+import type { Quillmark } from "@quillmark/wasm";
 
 /**
  * Registers a `node:test` describe block that validates every quill
@@ -35,7 +35,7 @@ import type { QuillmarkLike } from "./engine-types.js";
  */
 export function runQuiverTests(
   metaUrlOrDir: string,
-  engine: QuillmarkLike,
+  engine: Quillmark,
 ): void {
   describe("Quiver", () => {
     let quiver!: Quiver;
