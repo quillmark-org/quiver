@@ -11,20 +11,19 @@
  *
  * Usage (place a script next to your Quiver.yaml):
  *
- *   import { Quillmark, Document } from "@quillmark/wasm";
+ *   import { Quillmark } from "@quillmark/wasm";
  *   import { renderQuiverSamples } from "@quillmark/quiver/preview";
  *
  *   await renderQuiverSamples(import.meta.url, {
  *     engine: new Quillmark(),
- *     Document,
  *   });
  *   // → open ./preview/index.html
  *
- * The sample document is the illustrative example (`quill.example`) for each
- * quill version — a fully filled-out, always-renderable document (the
- * blueprint itself carries `<must-fill>` sentinels and is not renderable).
- * Every quill always has an example, so no quills are skipped for lack of a
- * sample document.
+ * The sample document is the illustrative example seeded by
+ * `quill.seedDocument()` for each quill version — a fully filled-out,
+ * always-renderable document (the blueprint itself carries `<must-fill>`
+ * sentinels and is not renderable). Every quill always seeds an example, so no
+ * quills are skipped for lack of a sample document.
  *
  * A `.gitignore` is written into `outDir` so the generated artifacts are not
  * accidentally committed.
@@ -37,14 +36,6 @@ import type { QuillmarkLike } from "./engine-types.js";
 
 /** Default directory rendered artifacts are written to. */
 const DEFAULT_OUT_DIR = "preview";
-
-/**
- * Structural shape of the `Document` class from `@quillmark/wasm`. Only the
- * `fromMarkdown` factory is used; passing the real class satisfies this.
- */
-export interface DocumentFactoryLike {
-  fromMarkdown(markdown: string): unknown;
-}
 
 /** One render output: a format-tagged byte payload. */
 interface ArtifactLike {
@@ -67,8 +58,6 @@ interface RenderResultLike {
 export interface RenderQuiverSamplesOptions {
   /** Quillmark engine instance (`new Quillmark()` from `@quillmark/wasm`). */
   engine: QuillmarkLike;
-  /** The `Document` class from `@quillmark/wasm`. */
-  Document: DocumentFactoryLike;
   /** Directory to write rendered artifacts into. Default: `preview`. */
   outDir?: string;
   /** Force an output format (`pdf`/`svg`/`png`/`txt`). Default: engine's choice. */
@@ -178,8 +167,7 @@ async function renderOne(
   let result: RenderResultLike;
   try {
     const quill = await quiver.getQuill(ref, { engine: opts.engine });
-    const markdown = quill.example;
-    const doc = opts.Document.fromMarkdown(markdown);
+    const doc = quill.seedDocument();
     result = quill.render(
       doc,
       opts.format ? { format: opts.format } : undefined,
