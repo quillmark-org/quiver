@@ -108,9 +108,9 @@ async function test(): Promise<void> {
     for (const version of quiver.versionsOf(name)) {
       const ref = `${name}@${version}`;
       try {
-        const quill = await quiver.getQuill(ref, { engine });
+        const quill = await quiver.getQuill(ref);
         const doc = quill.seedDocument();
-        const result = quill.render(doc) as { artifacts?: unknown[] };
+        const result = engine.render(quill, doc) as { artifacts?: unknown[] };
         if (!Array.isArray(result.artifacts) || result.artifacts.length === 0) {
           throw new Error("example render produced no artifacts");
         }

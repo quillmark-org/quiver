@@ -153,9 +153,10 @@ async function renderOne(
 
   let result: RenderResult;
   try {
-    const quill = await quiver.getQuill(ref, { engine: opts.engine });
+    const quill = await quiver.getQuill(ref);
     const doc = quill.seedDocument();
-    result = quill.render(
+    result = opts.engine.render(
+      quill,
       doc,
       opts.format ? { format: opts.format as OutputFormat } : undefined,
     );

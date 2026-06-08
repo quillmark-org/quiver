@@ -1,11 +1,11 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { readFile, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { renderQuiverSamples } from "../preview.js";
-import type { Quillmark } from "@quillmark/wasm";
+import { Quill, type Quillmark } from "@quillmark/wasm";
 
 // Fixture: `memo` and `plain` both render via their example documents.
 const PREVIEW_FIXTURE = fileURLToPath(
@@ -20,6 +20,7 @@ function makeOutDir(): string {
 }
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   await Promise.all(
     tempDirs.splice(0).map((d) => rm(d, { recursive: true, force: true })),
   );
@@ -27,23 +28,29 @@ afterEach(async () => {
 
 const MOCK_EXAMPLE = "---\nQUILL: mock\n---\n\n# Mock example";
 
-/** Mock engine whose quill echoes the seeded document markdown as artifact bytes. */
+/**
+ * Stub `Quill.fromTree` (now the engine-free construction path `getQuill`
+ * uses) so each preview quill seeds the mock markdown without the real WASM
+ * validator. Returns a fresh fake `Quill` whose `seedDocument` carries the
+ * markdown the engine echoes back.
+ */
+function stubQuillFromTree(
+  seed: () => unknown = () => ({ md: MOCK_EXAMPLE }),
+): void {
+  vi.spyOn(Quill, "fromTree").mockImplementation(
+    () => ({ seedDocument: seed }) as unknown as Quill,
+  );
+}
+
+/** Mock engine whose render echoes the seeded document markdown as artifact bytes. */
 function makeEngine(): Quillmark {
   return {
-    quill() {
+    render(_quill: unknown, doc: unknown, opts: unknown) {
+      const md = (doc as { md: string }).md;
+      const format = (opts as { format?: string } | undefined)?.format ?? "pdf";
       return {
-        seedDocument() {
-          return { md: MOCK_EXAMPLE };
-        },
-        render(doc: unknown, opts: unknown) {
-          const md = (doc as { md: string }).md;
-          const format =
-            (opts as { format?: string } | undefined)?.format ?? "pdf";
-          return {
-            artifacts: [{ format, bytes: new TextEncoder().encode(md) }],
-            warnings: [{ severity: "warning", message: "mock warning" }],
-          };
-        },
+        artifacts: [{ format, bytes: new TextEncoder().encode(md) }],
+        warnings: [{ severity: "warning", message: "mock warning" }],
       };
     },
   } as unknown as Quillmark;
@@ -51,6 +58,7 @@ function makeEngine(): Quillmark {
 
 describe("renderQuiverSamples", () => {
   it("renders every quill using its example", async () => {
+    stubQuillFromTree();
     const outDir = makeOutDir();
     const results = await renderQuiverSamples(PREVIEW_FIXTURE, {
       engine: makeEngine(),
@@ -71,6 +79,7 @@ describe("renderQuiverSamples", () => {
   });
 
   it("writes the rendered artifact bytes to disk", async () => {
+    stubQuillFromTree();
     const outDir = makeOutDir();
     await renderQuiverSamples(PREVIEW_FIXTURE, {
       engine: makeEngine(),
@@ -83,6 +92,7 @@ describe("renderQuiverSamples", () => {
   });
 
   it("writes an index.html gallery", async () => {
+    stubQuillFromTree();
     const outDir = makeOutDir();
     await renderQuiverSamples(PREVIEW_FIXTURE, {
       engine: makeEngine(),
@@ -97,6 +107,7 @@ describe("renderQuiverSamples", () => {
   });
 
   it("honors a forced output format", async () => {
+    stubQuillFromTree();
     const outDir = makeOutDir();
     const results = await renderQuiverSamples(PREVIEW_FIXTURE, {
       engine: makeEngine(),
@@ -112,17 +123,11 @@ describe("renderQuiverSamples", () => {
   });
 
   it("records a render failure without aborting the run", async () => {
+    stubQuillFromTree(() => ({}));
     const outDir = makeOutDir();
     const explodingEngine = {
-      quill() {
-        return {
-          seedDocument() {
-            return {};
-          },
-          render() {
-            throw new Error("boom");
-          },
-        };
+      render() {
+        throw new Error("boom");
       },
     } as unknown as Quillmark;
 
@@ -142,24 +147,18 @@ describe("renderQuiverSamples", () => {
   });
 
   it("surfaces every diagnostic from a failed render", async () => {
+    stubQuillFromTree(() => ({}));
     const outDir = makeOutDir();
     const explodingEngine = {
-      quill() {
-        return {
-          seedDocument() {
-            return {};
-          },
-          render() {
-            const err = new Error("2 error(s): first") as Error & {
-              diagnostics: { severity: string; message: string }[];
-            };
-            err.diagnostics = [
-              { severity: "error", message: "first" },
-              { severity: "error", message: "second" },
-            ];
-            throw err;
-          },
+      render() {
+        const err = new Error("2 error(s): first") as Error & {
+          diagnostics: { severity: string; message: string }[];
         };
+        err.diagnostics = [
+          { severity: "error", message: "first" },
+          { severity: "error", message: "second" },
+        ];
+        throw err;
       },
     } as unknown as Quillmark;
 
@@ -179,6 +178,7 @@ describe("renderQuiverSamples", () => {
   });
 
   it("filters quills with include and exclude", async () => {
+    stubQuillFromTree();
     const includeOnly = await renderQuiverSamples(PREVIEW_FIXTURE, {
       engine: makeEngine(),
       outDir: makeOutDir(),
@@ -197,6 +197,7 @@ describe("renderQuiverSamples", () => {
   });
 
   it("writes a .gitignore into the output directory", async () => {
+    stubQuillFromTree();
     const outDir = makeOutDir();
     await renderQuiverSamples(PREVIEW_FIXTURE, {
       engine: makeEngine(),

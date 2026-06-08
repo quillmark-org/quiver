@@ -30,8 +30,8 @@ import type { Quillmark } from "@quillmark/wasm";
  * to Quiver.yaml). Pass an absolute directory path for any other layout.
  *
  * Validation covers the full loading pipeline: Quiver.yaml, Quill.yaml,
- * all template files, engine compilation via engine.quill(tree), and a
- * full render of each quill's example document.
+ * all template files, quill construction via Quill.fromTree(tree), and a
+ * full render of each quill's example document via engine.render(quill, doc).
  */
 export function runQuiverTests(
   metaUrlOrDir: string,
@@ -54,9 +54,9 @@ export function runQuiverTests(
       for (const name of quiver.quillNames()) {
         for (const version of quiver.versionsOf(name)) {
           const ref = `${name}@${version}`;
-          const quill = await quiver.getQuill(ref, { engine });
+          const quill = await quiver.getQuill(ref);
           const doc = quill.seedDocument();
-          const result = quill.render(doc) as {
+          const result = engine.render(quill, doc) as {
             artifacts?: unknown[];
           };
           if (!Array.isArray(result.artifacts) || result.artifacts.length === 0) {
