@@ -95,21 +95,25 @@ await renderQuiverSamples(import.meta.url, {
 ## Consuming a quiver (Node)
 
 ```ts
-import { Quillmark, Document } from "@quillmark/wasm";
+import { Quill, Quillmark, Document } from "@quillmark/wasm";
 import { Quiver } from "@quillmark/quiver/node";
 
-const engine = new Quillmark();
 const quiver = await Quiver.fromPackage("@org/my-quiver");
+const engine = new Quillmark();
 
 const doc = Document.fromMarkdown(markdownString);
-const quill = await quiver.getQuill(doc.quillRef, { engine });
-const result = quill.render(doc, { format: "pdf" });
+const quill = await quiver.getQuill(doc.quillRef);
+const result = engine.render(quill, doc, { format: "pdf" });
 ```
 
 `getQuill` accepts both selector refs (`"memo"`, `"memo@1"`) and canonical
 refs (`"memo@1.0.0"`). It resolves the selector, materializes the quill via
-`engine.quill(tree)`, and caches per (engine, canonical-ref). Concurrent
-calls for the same ref share a single load.
+`Quill.fromTree(tree)` (engine-free), and caches one instance per canonical
+ref for the lifetime of the `Quiver`. Concurrent calls for the same ref
+coalesce into a single load.
+
+Note: `Quill` must be a **value import** (not `import type { Quill }`) — it
+is used at runtime by `Quiver.getQuill`.
 
 If you only need the canonical ref (without materializing), use `resolve`:
 
@@ -137,7 +141,7 @@ await Quiver.build(
 import { Quiver } from "@quillmark/quiver";
 
 const quiver = await Quiver.fromBuiltUrl("/quivers/my-quiver/");
-const quill = await quiver.getQuill(doc.quillRef, { engine });
+const quill = await quiver.getQuill(doc.quillRef);
 ```
 
 ## Server-side runtime (Node, packed artifact on disk)
@@ -206,3 +210,37 @@ try {
 ```
 
 Error codes: `invalid_ref`, `quill_not_found`, `quiver_invalid`, `transport_error`.
+
+## Using `getQuill` vs calling `Quill.fromTree` directly
+
+`getQuill(ref)` is the correct entry point for any code that loads a quill
+through a `Quiver`. It handles ref resolution, tree fetching, `Quill.fromTree`
+construction, and per-ref caching in one call. Do **not** reach for
+`Quill.fromTree` directly inside a Quiver consumer:
+
+```ts
+// wrong — bypasses Quiver's cache; duplicates work getQuill already does
+const tree = await quiver.loadTree(name, version);
+const quill = Quill.fromTree(tree);
+
+// right
+const quill = await quiver.getQuill(ref);
+```
+
+`Quill.fromTree` is for code that builds quills **outside** of a Quiver (e.g.
+a server route that receives a raw file tree over the network, or a test
+fixture that constructs a quill from a hand-rolled in-memory tree).
+
+## RC / local tarball installs
+
+When developing against a local RC tarball whose `package.json` version has
+not yet been bumped to match the peer-dep range (e.g. the tarball declares
+`0.89.0` while the peer dep requires `>=0.90.0`), npm will reject the
+install. Use `--legacy-peer-deps` to bypass the check:
+
+```bash
+npm install --legacy-peer-deps
+```
+
+This is safe for local development; the correct version number will be in
+place when the release tarball is published to npm.
