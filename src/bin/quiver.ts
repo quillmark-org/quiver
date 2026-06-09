@@ -19,7 +19,8 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Quiver } from "../node.js";
 import { renderQuiverSamples } from "../preview.js";
-import type { Quillmark } from "@quillmark/wasm";
+import { loadRenderQuill, type QuillCtor } from "../render-quill.js";
+import type { Quillmark, Quill as RenderQuill } from "@quillmark/wasm";
 
 // ---------------------------------------------------------------------------
 // Arg parsing helpers
@@ -49,33 +50,52 @@ function hasFlag(name: string): boolean {
 // Engine discovery
 // ---------------------------------------------------------------------------
 
-async function loadEngine(cwd: string): Promise<{ engine: Quillmark }> {
-  // 1. Named export from quiver.config.js, if present.
+async function loadEngine(
+  cwd: string,
+): Promise<{ engine: Quillmark; Quill: QuillCtor<RenderQuill> }> {
+  // Resolve @quillmark/wasm from the collection's node_modules (best-effort).
+  // It supplies the render `Quill` (used to materialize quills in the engine's
+  // WASM memory) and the default engine. A quiver.config.js may override the
+  // engine — and, if its build differs, the `Quill` — below.
+  let wasm:
+    | { Quillmark: new () => Quillmark; Quill: QuillCtor<RenderQuill> }
+    | undefined;
+  try {
+    const req = createRequire(pathToFileURL(join(cwd, "package.json")).href);
+    const wasmPath = req.resolve("@quillmark/wasm");
+    wasm = (await import(pathToFileURL(wasmPath).href)) as {
+      Quillmark: new () => Quillmark;
+      Quill: QuillCtor<RenderQuill>;
+    };
+  } catch {
+    // Not installed — a quiver.config.js may still provide engine + Quill.
+  }
+
+  // 1. Named exports from quiver.config.js, if present.
   try {
     const cfg = await import(pathToFileURL(join(cwd, "quiver.config.js")).href);
     if (cfg.engine != null) {
-      return { engine: cfg.engine as Quillmark };
+      const Quill = (cfg.Quill ?? wasm?.Quill) as
+        | QuillCtor<RenderQuill>
+        | undefined;
+      if (Quill != null) {
+        return { engine: cfg.engine as Quillmark, Quill };
+      }
+      // engine but no matching Quill — fall through to the install error.
     }
   } catch {
     // File absent or incomplete — fall through to auto-discovery.
   }
 
-  // 2. Auto-discover @quillmark/wasm from the collection's own node_modules.
-  const req = createRequire(pathToFileURL(join(cwd, "package.json")).href);
-  let wasmPath: string;
-  try {
-    wasmPath = req.resolve("@quillmark/wasm");
-  } catch {
+  // 2. Auto-discover from @quillmark/wasm.
+  if (wasm == null) {
     throw new Error(
       "Cannot find @quillmark/wasm in this collection's node_modules.\n" +
         "  Install it:  npm install @quillmark/wasm\n" +
-        "  Or export { engine } from quiver.config.js for a custom engine.",
+        "  Or export { engine, Quill } from quiver.config.js for a custom engine.",
     );
   }
-  const wasm = (await import(pathToFileURL(wasmPath).href)) as {
-    Quillmark: new () => Quillmark;
-  };
-  return { engine: new wasm.Quillmark() };
+  return { engine: new wasm.Quillmark(), Quill: wasm.Quill };
 }
 
 // ---------------------------------------------------------------------------
@@ -92,7 +112,7 @@ async function build(): Promise<void> {
 
 async function test(): Promise<void> {
   const cwd = process.cwd();
-  const { engine } = await loadEngine(cwd);
+  const { engine, Quill } = await loadEngine(cwd);
   const quiver = await Quiver.fromDir(cwd);
 
   const names = quiver.quillNames();
@@ -108,7 +128,7 @@ async function test(): Promise<void> {
     for (const version of quiver.versionsOf(name)) {
       const ref = `${name}@${version}`;
       try {
-        const quill = await quiver.getQuill(ref);
+        const quill = await loadRenderQuill(quiver, ref, Quill);
         const doc = quill.seedDocument();
         const result = engine.render(quill, doc) as { artifacts?: unknown[] };
         if (!Array.isArray(result.artifacts) || result.artifacts.length === 0) {
@@ -130,7 +150,7 @@ async function test(): Promise<void> {
 
 async function preview(): Promise<void> {
   const cwd = process.cwd();
-  const { engine } = await loadEngine(cwd);
+  const { engine, Quill } = await loadEngine(cwd);
   const outDir = flag("--out");
   const format = flag("--format");
   const quiet = hasFlag("--quiet");
@@ -138,6 +158,7 @@ async function preview(): Promise<void> {
   const exclude = multiFlag("--exclude");
   await renderQuiverSamples(cwd, {
     engine,
+    Quill,
     ...(outDir !== undefined && { outDir }),
     ...(format !== undefined && { format }),
     quiet,

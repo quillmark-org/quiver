@@ -7,10 +7,10 @@
  *
  * Usage (place this file next to your Quiver.yaml):
  *
- *   import { Quillmark } from "@quillmark/wasm";
+ *   import { Quill, Quillmark } from "@quillmark/wasm";
  *   import { runQuiverTests } from "@quillmark/quiver/testing";
  *   const engine = new Quillmark();
- *   runQuiverTests(import.meta.url, engine);
+ *   runQuiverTests(import.meta.url, engine, Quill);
  *
  * Run with `node --test`.
  */
@@ -20,7 +20,8 @@ import { describe, it, before } from "node:test";
 // `Quiver.fromDir` is callable at runtime, and gives us the augmented
 // static-method type signature.
 import { Quiver } from "./node.js";
-import type { Quillmark } from "@quillmark/wasm";
+import { loadRenderQuill, type QuillCtor } from "./render-quill.js";
+import type { Quillmark, Quill as RenderQuill } from "@quillmark/wasm";
 
 /**
  * Registers a `node:test` describe block that validates every quill
@@ -36,6 +37,7 @@ import type { Quillmark } from "@quillmark/wasm";
 export function runQuiverTests(
   metaUrlOrDir: string,
   engine: Quillmark,
+  Quill: QuillCtor<RenderQuill>,
 ): void {
   describe("Quiver", () => {
     let quiver!: Quiver;
@@ -54,7 +56,9 @@ export function runQuiverTests(
       for (const name of quiver.quillNames()) {
         for (const version of quiver.versionsOf(name)) {
           const ref = `${name}@${version}`;
-          const quill = await quiver.getQuill(ref);
+          // Materialize in the engine's (render) memory — a core-build Quill
+          // from `quiver.getQuill` cannot cross into `engine.render`.
+          const quill = await loadRenderQuill(quiver, ref, Quill);
           const doc = quill.seedDocument();
           const result = engine.render(quill, doc) as {
             artifacts?: unknown[];

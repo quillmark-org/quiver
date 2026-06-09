@@ -4,8 +4,10 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { renderQuiverSamples } from "../preview.js";
-import { Quill } from "@quillmark/wasm/core";
+import {
+  renderQuiverSamples,
+  type RenderQuiverSamplesOptions,
+} from "../preview.js";
 import type { Quillmark } from "@quillmark/wasm";
 
 // Fixture: `memo` and `plain` both render via their example documents.
@@ -30,17 +32,18 @@ afterEach(async () => {
 const MOCK_EXAMPLE = "---\nQUILL: mock\n---\n\n# Mock example";
 
 /**
- * Stub `Quill.fromTree` (now the engine-free construction path `getQuill`
- * uses) so each preview quill seeds the mock markdown without the real WASM
- * validator. Returns a fresh fake `Quill` whose `seedDocument` carries the
- * markdown the engine echoes back.
+ * Stand-in for the render build's `Quill`, passed via the `Quill` option exactly
+ * as a real consumer must. Its `fromTree` ignores the (real) tree fetched from
+ * the quiver and seeds the mock document the mock engine echoes back. Modeling
+ * the render Quill here — rather than stubbing the *core* `Quill.fromTree` —
+ * mirrors the real render path: the engine never sees a core handle.
  */
-function stubQuillFromTree(
+function mockQuill(
   seed: () => unknown = () => ({ md: MOCK_EXAMPLE }),
-): void {
-  vi.spyOn(Quill, "fromTree").mockImplementation(
-    () => ({ seedDocument: seed }) as unknown as Quill,
-  );
+): RenderQuiverSamplesOptions["Quill"] {
+  return {
+    fromTree: () => ({ seedDocument: seed }),
+  } as unknown as RenderQuiverSamplesOptions["Quill"];
 }
 
 /** Mock engine whose render echoes the seeded document markdown as artifact bytes. */
@@ -59,10 +62,10 @@ function makeEngine(): Quillmark {
 
 describe("renderQuiverSamples", () => {
   it("renders every quill using its example", async () => {
-    stubQuillFromTree();
     const outDir = makeOutDir();
     const results = await renderQuiverSamples(PREVIEW_FIXTURE, {
       engine: makeEngine(),
+      Quill: mockQuill(),
       outDir,
       quiet: true,
     });
@@ -80,10 +83,10 @@ describe("renderQuiverSamples", () => {
   });
 
   it("writes the rendered artifact bytes to disk", async () => {
-    stubQuillFromTree();
     const outDir = makeOutDir();
     await renderQuiverSamples(PREVIEW_FIXTURE, {
       engine: makeEngine(),
+      Quill: mockQuill(),
       outDir,
       quiet: true,
     });
@@ -93,10 +96,10 @@ describe("renderQuiverSamples", () => {
   });
 
   it("writes an index.html gallery", async () => {
-    stubQuillFromTree();
     const outDir = makeOutDir();
     await renderQuiverSamples(PREVIEW_FIXTURE, {
       engine: makeEngine(),
+      Quill: mockQuill(),
       outDir,
       quiet: true,
     });
@@ -108,10 +111,10 @@ describe("renderQuiverSamples", () => {
   });
 
   it("honors a forced output format", async () => {
-    stubQuillFromTree();
     const outDir = makeOutDir();
     const results = await renderQuiverSamples(PREVIEW_FIXTURE, {
       engine: makeEngine(),
+      Quill: mockQuill(),
       outDir,
       format: "svg",
       quiet: true,
@@ -124,7 +127,6 @@ describe("renderQuiverSamples", () => {
   });
 
   it("records a render failure without aborting the run", async () => {
-    stubQuillFromTree(() => ({}));
     const outDir = makeOutDir();
     const explodingEngine = {
       render() {
@@ -134,6 +136,7 @@ describe("renderQuiverSamples", () => {
 
     const results = await renderQuiverSamples(PREVIEW_FIXTURE, {
       engine: explodingEngine,
+      Quill: mockQuill(() => ({})),
       outDir,
       quiet: true,
     });
@@ -148,7 +151,6 @@ describe("renderQuiverSamples", () => {
   });
 
   it("surfaces every diagnostic from a failed render", async () => {
-    stubQuillFromTree(() => ({}));
     const outDir = makeOutDir();
     const explodingEngine = {
       render() {
@@ -165,6 +167,7 @@ describe("renderQuiverSamples", () => {
 
     const results = await renderQuiverSamples(PREVIEW_FIXTURE, {
       engine: explodingEngine,
+      Quill: mockQuill(() => ({})),
       outDir,
       quiet: true,
     });
@@ -179,9 +182,9 @@ describe("renderQuiverSamples", () => {
   });
 
   it("filters quills with include and exclude", async () => {
-    stubQuillFromTree();
     const includeOnly = await renderQuiverSamples(PREVIEW_FIXTURE, {
       engine: makeEngine(),
+      Quill: mockQuill(),
       outDir: makeOutDir(),
       quiet: true,
       include: ["memo"],
@@ -190,6 +193,7 @@ describe("renderQuiverSamples", () => {
 
     const excluded = await renderQuiverSamples(PREVIEW_FIXTURE, {
       engine: makeEngine(),
+      Quill: mockQuill(),
       outDir: makeOutDir(),
       quiet: true,
       exclude: ["memo@1.0.0"],
@@ -198,10 +202,10 @@ describe("renderQuiverSamples", () => {
   });
 
   it("writes a .gitignore into the output directory", async () => {
-    stubQuillFromTree();
     const outDir = makeOutDir();
     await renderQuiverSamples(PREVIEW_FIXTURE, {
       engine: makeEngine(),
+      Quill: mockQuill(),
       outDir,
       quiet: true,
     });

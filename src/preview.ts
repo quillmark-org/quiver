@@ -11,11 +11,12 @@
  *
  * Usage (place a script next to your Quiver.yaml):
  *
- *   import { Quillmark } from "@quillmark/wasm";
+ *   import { Quill, Quillmark } from "@quillmark/wasm";
  *   import { renderQuiverSamples } from "@quillmark/quiver/preview";
  *
  *   await renderQuiverSamples(import.meta.url, {
  *     engine: new Quillmark(),
+ *     Quill,
  *   });
  *   // → open ./preview/index.html
  *
@@ -32,11 +33,13 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Quiver } from "./node.js";
+import { loadRenderQuill, type QuillCtor } from "./render-quill.js";
 import type {
   Quillmark,
   RenderResult,
   Diagnostic,
   OutputFormat,
+  Quill as RenderQuill,
 } from "@quillmark/wasm";
 
 /** Default directory rendered artifacts are written to. */
@@ -45,6 +48,13 @@ const DEFAULT_OUT_DIR = "preview";
 export interface RenderQuiverSamplesOptions {
   /** Quillmark engine instance (`new Quillmark()` from `@quillmark/wasm`). */
   engine: Quillmark;
+  /**
+   * The render build's `Quill` class — `import { Quill } from "@quillmark/wasm"`.
+   * Must come from the **same build** as `engine`. Each quill is materialized in
+   * the render engine's WASM memory via this class (see `loadRenderQuill`); a
+   * core-build Quill cannot cross into the render engine.
+   */
+  Quill: QuillCtor<RenderQuill>;
   /** Directory to write rendered artifacts into. Default: `preview`. */
   outDir?: string;
   /** Force an output format (`pdf`/`svg`/`png`/`txt`). Default: engine's choice. */
@@ -153,7 +163,9 @@ async function renderOne(
 
   let result: RenderResult;
   try {
-    const quill = await quiver.getQuill(ref);
+    // Render path: materialize the Quill in the engine's (render) WASM memory.
+    // `quiver.getQuill` would return a core-build Quill the engine rejects.
+    const quill = await loadRenderQuill(quiver, ref, opts.Quill);
     const doc = quill.seedDocument();
     result = opts.engine.render(
       quill,
