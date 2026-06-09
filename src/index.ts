@@ -6,8 +6,8 @@
 export { QuiverError } from "./errors.js";
 export type { QuiverErrorCode } from "./errors.js";
 export { Quiver } from "./quiver.js";
-export { loadRenderQuill } from "./render-quill.js";
-export type { QuillCtor } from "./render-quill.js";
+export { loadRenderQuill, toRenderDocument } from "./render-quill.js";
+export type { QuillCtor, DocumentCtor } from "./render-quill.js";
 
 // Engine types (`Quillmark`, `Quill`, `Document`, `RenderResult`, …) are not
 // re-exported: import them straight from the `@quillmark/wasm` peer dependency,

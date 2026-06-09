@@ -96,15 +96,25 @@ await renderQuiverSamples(import.meta.url, {
 
 ```ts
 import { Quill, Quillmark, Document } from "@quillmark/wasm";
-import { Quiver } from "@quillmark/quiver/node";
+import { Quiver, loadRenderQuill } from "@quillmark/quiver";
+// (or import { Quiver } from "@quillmark/quiver/node" for Node factories)
 
 const quiver = await Quiver.fromPackage("@org/my-quiver");
 const engine = new Quillmark();
 
 const doc = Document.fromMarkdown(markdownString);
-const quill = await quiver.getQuill(doc.quillRef);
-const result = engine.render(quill, doc, { format: "pdf" });
+
+// Cross the core→render WASM-memory boundary as data: `loadRenderQuill`
+// fetches the cached tree and re-materializes the quill in the render build's
+// memory via the `Quill` you inject.
+const renderQuill = await loadRenderQuill(quiver, doc.quillRef, Quill);
+const result = engine.render(renderQuill, doc, { format: "pdf" });
 ```
+
+`Document.fromMarkdown` is called on the render build here, so `doc` already
+lives in render memory — no round-trip is needed. (A `Document` that originated
+in the core build must be crossed with `toRenderDocument(coreDoc, Document)`
+first; see the render-path snippet below.)
 
 `getQuill` accepts both selector refs (`"memo"`, `"memo@1"`) and canonical
 refs (`"memo@1.0.0"`). It resolves the selector, materializes the quill via
@@ -114,21 +124,22 @@ coalesce into a single load.
 
 `getQuill` uses `@quillmark/wasm/core` internally — the returned quill is
 suitable for schema inspection, validation, blueprint access, and seeding,
-but it lives in the core build's WASM linear memory. To render, the quill
-must be re-materialized in the render build's memory using `getTree`:
+but it lives in the core build's WASM linear memory. To render, both the quill
+and any core-seeded document must be crossed into the render build's memory with
+`loadRenderQuill` / `toRenderDocument`:
 
 ```ts
-import { Quill as CoreQuill } from "@quillmark/wasm/core";
 import { Quill, Quillmark, Document } from "@quillmark/wasm";
+import { loadRenderQuill, toRenderDocument } from "@quillmark/quiver";
 
 // Editor path — core only, ~0.66 MB gzip
 const coreQuill = await quiver.getQuill(ref);
 coreQuill.schema; // ✓ schema, validate, blueprint, seed — all fine
+const coreDoc = coreQuill.seedDocument(); // core-memory Document
 
-// Render path — re-materialize in render memory from the cached tree
-const tree = await quiver.getTree(ref);
-const renderQuill = Quill.fromTree(tree);
-const renderDoc = Document.fromJson(coreDoc.toJson()); // round-trip through JSON
+// Render path — cross both handles into the engine's render memory as data.
+const renderQuill = await loadRenderQuill(quiver, ref, Quill);
+const renderDoc = toRenderDocument(coreDoc, Document); // round-trip through JSON
 const result = engine.render(renderQuill, renderDoc, { format: "pdf" });
 ```
 
