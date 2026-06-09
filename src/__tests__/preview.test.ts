@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { renderQuiverSamples } from "../preview.js";
-import { Quill, type Quillmark } from "@quillmark/wasm";
+import { Quill } from "@quillmark/wasm/core";
+import type { Quillmark } from "@quillmark/wasm";
 
 // Fixture: `memo` and `plain` both render via their example documents.
 const PREVIEW_FIXTURE = fileURLToPath(

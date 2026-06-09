@@ -1,5 +1,6 @@
 import { vi, type MockInstance } from "vitest";
-import { Quill, type Quillmark, type Document } from "@quillmark/wasm";
+import { Quill } from "@quillmark/wasm/core";
+import type { Quillmark, Document } from "@quillmark/wasm";
 
 /**
  * Stubs `Quill.fromTree` so tests can exercise `Quiver.getQuill` without the

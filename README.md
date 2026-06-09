@@ -112,6 +112,26 @@ refs (`"memo@1.0.0"`). It resolves the selector, materializes the quill via
 ref for the lifetime of the `Quiver`. Concurrent calls for the same ref
 coalesce into a single load.
 
+`getQuill` uses `@quillmark/wasm/core` internally — the returned quill is
+suitable for schema inspection, validation, blueprint access, and seeding,
+but it lives in the core build's WASM linear memory. To render, the quill
+must be re-materialized in the render build's memory using `getTree`:
+
+```ts
+import { Quill as CoreQuill } from "@quillmark/wasm/core";
+import { Quill, Quillmark, Document } from "@quillmark/wasm";
+
+// Editor path — core only, ~0.66 MB gzip
+const coreQuill = await quiver.getQuill(ref);
+coreQuill.schema; // ✓ schema, validate, blueprint, seed — all fine
+
+// Render path — re-materialize in render memory from the cached tree
+const tree = await quiver.getTree(ref);
+const renderQuill = Quill.fromTree(tree);
+const renderDoc = Document.fromJson(coreDoc.toJson()); // round-trip through JSON
+const result = engine.render(renderQuill, renderDoc, { format: "pdf" });
+```
+
 Note: `Quill` must be a **value import** (not `import type { Quill }`) — it
 is used at runtime by `Quiver.getQuill`.
 
@@ -181,15 +201,14 @@ await quiver.warm();
 
 `warm()` is I/O-only: it loads every quill's tree (over the network for
 `fromBuiltUrl`, off the filesystem for `fromPackage` / `fromDir` /
-`fromBuiltDir`) and caches
-them. It does not require an engine and does not materialize Quill
-instances — that happens lazily on the first `getQuill` call, which is
-microseconds. A subsequent `getQuill` reuses the cached tree, skipping
-the load.
+`fromBuiltDir`) and caches them. It does not require an engine and does
+not materialize Quill instances — that happens lazily on the first
+`getQuill` call, which is microseconds. A subsequent `getQuill` reuses
+the cached tree, skipping the load.
 
-Once a tree has been turned into a Quill, the cached tree is dropped so
-its bytes can be GC'd — the materialized Quill is the runtime artifact.
-Calling `warm()` again refills the tree cache.
+Trees are retained alongside the materialized Quill so that render-path
+consumers can call `getTree(ref)` without a second I/O round-trip. Both
+caches persist for the lifetime of the `Quiver` instance.
 
 ## Error handling
 

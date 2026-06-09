@@ -11,7 +11,7 @@
  */
 
 import { QuiverError } from "./errors.js";
-import { Quill } from "@quillmark/wasm";
+import { Quill } from "@quillmark/wasm/core";
 import { parseQuillRef } from "./ref.js";
 import { matchesSemverSelector, chooseHighestVersion } from "./semver.js";
 
@@ -165,16 +165,18 @@ export class Quiver {
   /**
    * Returns a `Quill` for a ref (selector or canonical).
    *
-   * Selector refs (e.g. `"memo"`, `"memo@1"`) are resolved to canonical
-   * form first. Materializes via `Quill.fromTree(tree)` on first call and
-   * caches per canonical ref — a `Quill` is engine-free, portable data, so
-   * one instance is shared across every engine. Reuses a tree cached by
-   * `warm()` (or a previous `getQuill`) so the network fetch isn't paid
-   * twice. Concurrent calls for the same ref coalesce into a single load.
+   * The returned quill is materialized from `@quillmark/wasm/core` — it is
+   * engine-free, portable data suitable for schema inspection, validation,
+   * blueprint access, and document seeding. It does **not** carry the Typst
+   * render backend.
    *
-   * To render the returned quill, pass it to an engine:
-   * `engine.render(quill, doc, opts)`. The declared backend is resolved (and
-   * `UnsupportedBackend` surfaced) at that point, not here.
+   * To render, use `getTree(ref)` to obtain the raw file tree and re-feed it
+   * to `Quill.fromTree` inside the render build's WASM memory. The two builds
+   * have separate linear memories and their handles are not interchangeable.
+   *
+   * Selector refs (e.g. `"memo"`, `"memo@1"`) are resolved to canonical form
+   * first. Materializes once and caches per canonical ref — concurrent calls
+   * coalesce into a single load.
    *
    * Throws:
    *   - `invalid_ref` if ref is malformed
@@ -198,18 +200,12 @@ export class Quiver {
 
   /**
    * Internal: load tree (cached) + construct via Quill.fromTree. Errors
-   * propagate.
-   *
-   * On success, evicts the tree from the cache so its bytes can be GC'd —
-   * the materialized Quill is the runtime artifact; the tree is dead weight
-   * once a Quill exists. On failure, the tree is retained so retries skip
-   * the network.
+   * propagate. The tree stays cached after materialization so render-path
+   * consumers can retrieve it via `getTree` without a second fetch.
    */
   async #materializeQuill(canonicalRef: string): Promise<Quill> {
     const tree = await this.#getTreeCached(canonicalRef);
-    const quill = Quill.fromTree(tree);
-    this.#treeCache.delete(canonicalRef);
-    return quill;
+    return Quill.fromTree(tree);
   }
 
   /**
@@ -231,6 +227,30 @@ export class Quiver {
       this.#treeCache.set(canonicalRef, entry);
     }
     return entry;
+  }
+
+  /**
+   * Returns the raw file tree for a ref (selector or canonical).
+   *
+   * Useful for consumers that need to pass a Quill into a different WASM
+   * linear memory — for example, a render build that operates independently
+   * from the core build used for editing. The caller re-materializes the Quill
+   * in their own memory context:
+   *
+   * ```ts
+   * const tree = await quiver.getTree(ref);
+   * const renderQuill = renderModule.Quill.fromTree(tree);
+   * ```
+   *
+   * The tree is cached alongside the materialized Quill (it is NOT evicted
+   * after `getQuill` resolves), so this call is I/O-free once the tree or
+   * Quill is in cache.
+   *
+   * Throws the same errors as `resolve` and `loadTree`.
+   */
+  async getTree(ref: string): Promise<Map<string, Uint8Array>> {
+    const canonicalRef = await this.resolve(ref);
+    return this.#getTreeCached(canonicalRef);
   }
 
   /**
