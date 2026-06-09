@@ -8,9 +8,10 @@ import {
   renderQuiverSamples,
   type RenderQuiverSamplesOptions,
 } from "../preview.js";
-import type { Quillmark } from "@quillmark/wasm";
 
-// Fixture: `memo` and `plain` both render via their example documents.
+// Fixture: `memo` and `plain` are valid core quills (parseable + seedable), so
+// `renderQuiverSamples` materializes them via `quiver.getQuill` and seeds a real
+// Document. The Engine is mocked, so no real Typst render runs.
 const PREVIEW_FIXTURE = fileURLToPath(
   new URL("./fixtures/preview-quiver", import.meta.url),
 );
@@ -29,35 +30,30 @@ afterEach(async () => {
   );
 });
 
-const MOCK_EXAMPLE = "---\nQUILL: mock\n---\n\n# Mock example";
-
 /**
- * Stand-in for the render build's `Quill`, passed via the `Quill` option exactly
- * as a real consumer must. Its `fromTree` ignores the (real) tree fetched from
- * the quiver and seeds the mock document the mock engine echoes back. Modeling
- * the render Quill here — rather than stubbing the *core* `Quill.fromTree` —
- * mirrors the real render path: the engine never sees a core handle.
+ * Mock canonical Engine. Takes the real core Quill + seeded Document that
+ * `renderQuiverSamples` produces and echoes a deterministic artifact whose
+ * bytes encode the chosen format — no real backend involved.
  */
-function mockQuill(
-  seed: () => unknown = () => ({ md: MOCK_EXAMPLE }),
-): RenderQuiverSamplesOptions["Quill"] {
+function makeEngine(): RenderQuiverSamplesOptions["engine"] {
   return {
-    fromTree: () => ({ seedDocument: seed }),
-  } as unknown as RenderQuiverSamplesOptions["Quill"];
-}
-
-/** Mock engine whose render echoes the seeded document markdown as artifact bytes. */
-function makeEngine(): Quillmark {
-  return {
-    render(_quill: unknown, doc: unknown, opts: unknown) {
-      const md = (doc as { md: string }).md;
+    async render(_quill: unknown, _doc: unknown, opts: unknown) {
       const format = (opts as { format?: string } | undefined)?.format ?? "pdf";
       return {
-        artifacts: [{ format, bytes: new TextEncoder().encode(md) }],
+        artifacts: [
+          { format, bytes: new TextEncoder().encode(`rendered:${format}`) },
+        ],
         warnings: [{ severity: "warning", message: "mock warning" }],
       };
     },
-  } as unknown as Quillmark;
+  } as unknown as RenderQuiverSamplesOptions["engine"];
+}
+
+/** Engine whose render rejects, to exercise the failure path. */
+function explodingEngine(
+  render: () => never,
+): RenderQuiverSamplesOptions["engine"] {
+  return { render } as unknown as RenderQuiverSamplesOptions["engine"];
 }
 
 describe("renderQuiverSamples", () => {
@@ -65,7 +61,6 @@ describe("renderQuiverSamples", () => {
     const outDir = makeOutDir();
     const results = await renderQuiverSamples(PREVIEW_FIXTURE, {
       engine: makeEngine(),
-      Quill: mockQuill(),
       outDir,
       quiet: true,
     });
@@ -86,20 +81,18 @@ describe("renderQuiverSamples", () => {
     const outDir = makeOutDir();
     await renderQuiverSamples(PREVIEW_FIXTURE, {
       engine: makeEngine(),
-      Quill: mockQuill(),
       outDir,
       quiet: true,
     });
 
     const artifact = await readFile(join(outDir, "memo@1.0.0.pdf"), "utf8");
-    expect(artifact).toContain("# Mock example");
+    expect(artifact).toBe("rendered:pdf");
   });
 
   it("writes an index.html gallery", async () => {
     const outDir = makeOutDir();
     await renderQuiverSamples(PREVIEW_FIXTURE, {
       engine: makeEngine(),
-      Quill: mockQuill(),
       outDir,
       quiet: true,
     });
@@ -114,7 +107,6 @@ describe("renderQuiverSamples", () => {
     const outDir = makeOutDir();
     const results = await renderQuiverSamples(PREVIEW_FIXTURE, {
       engine: makeEngine(),
-      Quill: mockQuill(),
       outDir,
       format: "svg",
       quiet: true,
@@ -128,15 +120,12 @@ describe("renderQuiverSamples", () => {
 
   it("records a render failure without aborting the run", async () => {
     const outDir = makeOutDir();
-    const explodingEngine = {
-      render() {
-        throw new Error("boom");
-      },
-    } as unknown as Quillmark;
+    const engine = explodingEngine(() => {
+      throw new Error("boom");
+    });
 
     const results = await renderQuiverSamples(PREVIEW_FIXTURE, {
-      engine: explodingEngine,
-      Quill: mockQuill(() => ({})),
+      engine,
       outDir,
       quiet: true,
     });
@@ -152,22 +141,19 @@ describe("renderQuiverSamples", () => {
 
   it("surfaces every diagnostic from a failed render", async () => {
     const outDir = makeOutDir();
-    const explodingEngine = {
-      render() {
-        const err = new Error("2 error(s): first") as Error & {
-          diagnostics: { severity: string; message: string }[];
-        };
-        err.diagnostics = [
-          { severity: "error", message: "first" },
-          { severity: "error", message: "second" },
-        ];
-        throw err;
-      },
-    } as unknown as Quillmark;
+    const engine = explodingEngine(() => {
+      const err = new Error("2 error(s): first") as Error & {
+        diagnostics: { severity: string; message: string }[];
+      };
+      err.diagnostics = [
+        { severity: "error", message: "first" },
+        { severity: "error", message: "second" },
+      ];
+      throw err;
+    });
 
     const results = await renderQuiverSamples(PREVIEW_FIXTURE, {
-      engine: explodingEngine,
-      Quill: mockQuill(() => ({})),
+      engine,
       outDir,
       quiet: true,
     });
@@ -184,7 +170,6 @@ describe("renderQuiverSamples", () => {
   it("filters quills with include and exclude", async () => {
     const includeOnly = await renderQuiverSamples(PREVIEW_FIXTURE, {
       engine: makeEngine(),
-      Quill: mockQuill(),
       outDir: makeOutDir(),
       quiet: true,
       include: ["memo"],
@@ -193,7 +178,6 @@ describe("renderQuiverSamples", () => {
 
     const excluded = await renderQuiverSamples(PREVIEW_FIXTURE, {
       engine: makeEngine(),
-      Quill: mockQuill(),
       outDir: makeOutDir(),
       quiet: true,
       exclude: ["memo@1.0.0"],
@@ -205,7 +189,6 @@ describe("renderQuiverSamples", () => {
     const outDir = makeOutDir();
     await renderQuiverSamples(PREVIEW_FIXTURE, {
       engine: makeEngine(),
-      Quill: mockQuill(),
       outDir,
       quiet: true,
     });

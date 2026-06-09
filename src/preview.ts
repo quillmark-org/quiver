@@ -11,13 +11,10 @@
  *
  * Usage (place a script next to your Quiver.yaml):
  *
- *   import { Quill, Quillmark } from "@quillmark/wasm";
+ *   import { Engine } from "@quillmark/wasm";
  *   import { renderQuiverSamples } from "@quillmark/quiver/preview";
  *
- *   await renderQuiverSamples(import.meta.url, {
- *     engine: new Quillmark(),
- *     Quill,
- *   });
+ *   await renderQuiverSamples(import.meta.url, { engine: new Engine() });
  *   // → open ./preview/index.html
  *
  * The sample document is the illustrative example seeded by
@@ -33,28 +30,18 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Quiver } from "./node.js";
-import { loadRenderQuill, type QuillCtor } from "./render-quill.js";
-import type {
-  Quillmark,
-  RenderResult,
-  Diagnostic,
-  OutputFormat,
-  Quill as RenderQuill,
-} from "@quillmark/wasm";
+import type { Engine, RenderResult, Diagnostic, OutputFormat } from "@quillmark/wasm";
 
 /** Default directory rendered artifacts are written to. */
 const DEFAULT_OUT_DIR = "preview";
 
 export interface RenderQuiverSamplesOptions {
-  /** Quillmark engine instance (`new Quillmark()` from `@quillmark/wasm`). */
-  engine: Quillmark;
   /**
-   * The render build's `Quill` class — `import { Quill } from "@quillmark/wasm"`.
-   * Must come from the **same build** as `engine`. Each quill is materialized in
-   * the render engine's WASM memory via this class (see `loadRenderQuill`); a
-   * core-build Quill cannot cross into the render engine.
+   * Canonical render engine (`new Engine()` from `@quillmark/wasm`). It takes the
+   * core `Quill`/`Document` that quiver produces and clones them into the
+   * backend on demand — no build-matching or handle-crossing for the caller.
    */
-  Quill: QuillCtor<RenderQuill>;
+  engine: Engine;
   /** Directory to write rendered artifacts into. Default: `preview`. */
   outDir?: string;
   /** Force an output format (`pdf`/`svg`/`png`/`txt`). Default: engine's choice. */
@@ -163,15 +150,19 @@ async function renderOne(
 
   let result: RenderResult;
   try {
-    // Render path: materialize the Quill in the engine's (render) WASM memory.
-    // `quiver.getQuill` would return a core-build Quill the engine rejects.
-    const quill = await loadRenderQuill(quiver, ref, opts.Quill);
+    // Canonical render path: a core Quill + its seeded Document handed straight
+    // to the Engine, which clones them into the backend and frees the clones.
+    const quill = await quiver.getQuill(ref);
     const doc = quill.seedDocument();
-    result = opts.engine.render(
-      quill,
-      doc,
-      opts.format ? { format: opts.format as OutputFormat } : undefined,
-    );
+    try {
+      result = await opts.engine.render(
+        quill,
+        doc,
+        opts.format ? { format: opts.format as OutputFormat } : undefined,
+      );
+    } finally {
+      doc.free();
+    }
   } catch (err) {
     return {
       ref,
