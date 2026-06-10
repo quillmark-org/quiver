@@ -277,22 +277,3 @@ const quill = await quiver.getQuill(ref);
 `Quill.fromTree` is for code that builds quills **outside** of a Quiver (e.g.
 a server route that receives a raw file tree over the network, or a test
 fixture that constructs a quill from a hand-rolled in-memory tree).
-
-<!-- TODO(release): delete this section once @quillmark/wasm publishes as 0.90.x -->
-## RC / local tarball installs
-
-> **Temporary RC-only workaround.** This applies only while `@quillmark/wasm`
-> is consumed from a local pre-release tarball; it goes away once `0.90.x` is
-> published to npm.
-
-When developing against a local RC tarball whose `package.json` version has
-not yet been bumped to match the peer-dep range (e.g. the tarball declares
-`0.89.0` while the peer dep requires `>=0.90.0`), npm will reject the
-install. Use `--legacy-peer-deps` to bypass the check:
-
-```bash
-npm install --legacy-peer-deps
-```
-
-This is safe for local development; the correct version number will be in
-place when the release tarball is published to npm.
