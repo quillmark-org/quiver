@@ -275,19 +275,21 @@ describe("Quiver.warm", () => {
   });
 });
 
-// ─── tree cache lifecycle ────────────────────────────────────────────────────
+// ─── quill cache lifecycle ───────────────────────────────────────────────────
 
-describe("Quiver tree cache lifecycle", () => {
-  // The quill cache is now keyed by ref (not engine): `Quill.fromTree` is
+describe("Quiver quill cache lifecycle", () => {
+  // The quill cache is keyed by ref (not engine): `Quill.fromTree` is
   // engine-free, so one quill per ref is shared. After a ref materializes
   // once, repeat `getQuill` calls hit the quill cache and never re-fetch.
+  // The fetched tree is consumed (evicted) once its quill materializes — the
+  // bounded quill cache is the only retained copy.
   let stub: ReturnType<typeof mockQuillFromTree> | undefined;
   afterEach(() => {
     stub?.restore();
     stub = undefined;
   });
 
-  it("24. tree is retained after successful materialization; quill stays cached and getTree is I/O-free", async () => {
+  it("24. tree is consumed after successful materialization; quill stays cached, no refetch", async () => {
     const { quiver, loaderCalls } = makeCountingQuiver({
       name: "test",
       catalog: new Map([["memo", ["1.0.0"]]]),
@@ -298,18 +300,13 @@ describe("Quiver tree cache lifecycle", () => {
     expect(loaderCalls()).toBe(1);
     expect(stub.calls).toHaveLength(1);
 
-    // Quill is cached per ref → no second materialization, no refetch.
+    // The fetched tree was consumed by materialization. The quill is cached
+    // per ref, so a second getQuill returns the same instance with no second
+    // materialization and — critically — no refetch.
     const b = await quiver.getQuill("memo@1.0.0");
     expect(b).toBe(a);
     expect(loaderCalls()).toBe(1);
     expect(stub.calls).toHaveLength(1);
-
-    // Tree is RETAINED (not evicted) after materialization, so the render-path
-    // escape hatch can pull it back out fetch-free: getTree must not trigger
-    // another loader fetch.
-    const tree = await quiver.getTree("memo@1.0.0");
-    expect(tree.has("Quill.yaml")).toBe(true);
-    expect(loaderCalls()).toBe(1); // still 1 — tree was retained, no refetch
   });
 
   it("25. tree is retained on Quill.fromTree failure so retry skips network", async () => {
@@ -333,7 +330,7 @@ describe("Quiver tree cache lifecycle", () => {
     expect(fromTreeCalls).toBe(2); // construction tried twice (fail + retry)
   });
 
-  it("26. warm + getQuill: tree from warm is retained after materialization; quill then cached", async () => {
+  it("26. warm + getQuill: tree from warm is consumed by materialization; quill then cached", async () => {
     const { quiver, loaderCalls } = makeCountingQuiver({
       name: "test",
       catalog: new Map([["memo", ["1.0.0"]]]),
@@ -347,17 +344,12 @@ describe("Quiver tree cache lifecycle", () => {
     expect(loaderCalls()).toBe(1); // tree from warm — no fetch
     expect(stub.calls).toHaveLength(1);
 
-    // Quill cached per ref → no refetch, no re-materialization.
+    // The warmed tree was consumed (evicted) by materialization; the quill is
+    // cached per ref → no refetch, no re-materialization on subsequent calls.
     const b = await quiver.getQuill("memo@1.0.0");
     expect(b).toBe(a);
     expect(loaderCalls()).toBe(1);
     expect(stub.calls).toHaveLength(1);
-
-    // The warmed tree is RETAINED through materialization, so getTree still
-    // serves it without a fetch.
-    const tree = await quiver.getTree("memo@1.0.0");
-    expect(tree.has("Quill.yaml")).toBe(true);
-    expect(loaderCalls()).toBe(1); // still 1 — retained, never refetched
   });
 
   it("27. repeated getQuill hits quill cache; no tree access, one construction", async () => {

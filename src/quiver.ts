@@ -11,7 +11,7 @@
  */
 
 import { QuiverError } from "./errors.js";
-import { Quill } from "@quillmark/wasm/core";
+import { Quill } from "@quillmark/wasm";
 import { parseQuillRef } from "./ref.js";
 import { matchesSemverSelector, chooseHighestVersion } from "./semver.js";
 
@@ -36,8 +36,8 @@ export class Quiver {
 
   /**
    * Cache of fetched trees, keyed by canonical ref. Populated by `warm()`
-   * and on first `getQuill` for a ref. Promise values so concurrent fetches
-   * coalesce.
+   * and on first `getQuill` for a ref; an entry is evicted once its quill
+   * materializes successfully. Promise values so concurrent fetches coalesce.
    */
   readonly #treeCache: Map<string, Promise<Map<string, Uint8Array>>> = new Map();
 
@@ -108,27 +108,6 @@ export class Quiver {
   }
 
   /**
-   * Lazily loads the file tree for a specific quill version.
-   *
-   * Returns `Map<string, Uint8Array>` suitable for `Quill.fromTree(tree)`.
-   * Does NOT cache the result — caching of materialized Quill instances
-   * happens in `getQuill`.
-   *
-   * Throws `transport_error` if name/version not in catalog or I/O fails.
-   */
-  async loadTree(name: string, version: string): Promise<Map<string, Uint8Array>> {
-    const versions = this.#catalog.get(name);
-    if (!versions || !versions.includes(version)) {
-      throw new QuiverError(
-        "transport_error",
-        `Quill "${name}@${version}" not found in quiver "${this.name}"`,
-        { quiverName: this.name, version, ref: `${name}@${version}` },
-      );
-    }
-    return this.#loader.loadTree(name, version);
-  }
-
-  /**
    * Resolves a selector ref → canonical ref (e.g. "memo" → "memo@1.1.0").
    *
    * Selector forms: `name`, `name@x`, `name@x.y`, `name@x.y.z`. Picks the
@@ -165,14 +144,11 @@ export class Quiver {
   /**
    * Returns a `Quill` for a ref (selector or canonical).
    *
-   * The returned quill is materialized from `@quillmark/wasm/core` — it is
-   * engine-free, portable data suitable for schema inspection, validation,
-   * blueprint access, and document seeding. It does **not** carry the Typst
-   * render backend.
+   * The returned quill is materialized from the `@quillmark/wasm` root export
+   * — it is engine-free, portable data suitable for schema inspection,
+   * validation, blueprint access, and document seeding.
    *
-   * To render, use `getTree(ref)` to obtain the raw file tree and re-feed it
-   * to `Quill.fromTree` inside the render build's WASM memory. The two builds
-   * have separate linear memories and their handles are not interchangeable.
+   * A core `Quill` renders directly: pass it to `engine.render(quill, doc)`.
    *
    * Selector refs (e.g. `"memo"`, `"memo@1"`) are resolved to canonical form
    * first. Materializes once and caches per canonical ref — concurrent calls
@@ -181,7 +157,7 @@ export class Quiver {
    * Throws:
    *   - `invalid_ref` if ref is malformed
    *   - `quill_not_found` if ref does not match any version in this quiver
-   *   - propagates I/O errors from loadTree unchanged
+   *   - propagates I/O errors from the loader unchanged
    *   - propagates validation errors from Quill.fromTree() unchanged
    */
   async getQuill(ref: string): Promise<Quill> {
@@ -200,27 +176,34 @@ export class Quiver {
 
   /**
    * Internal: load tree (cached) + construct via Quill.fromTree. Errors
-   * propagate. The tree stays cached after materialization so render-path
-   * consumers can retrieve it via `getTree` without a second fetch.
+   * propagate. On success the tree is evicted from `#treeCache` (the quill
+   * cache now holds the materialized result), so the tree is not retained
+   * past materialization. On `Quill.fromTree` failure the tree stays cached,
+   * so a retry skips the refetch.
    */
   async #materializeQuill(canonicalRef: string): Promise<Quill> {
-    const tree = await this.#getTreeCached(canonicalRef);
-    return Quill.fromTree(tree);
+    const entry = this.#getTreeCached(canonicalRef);
+    const tree = await entry;
+    const quill = Quill.fromTree(tree);
+    // Evict by identity: only drop the entry if it is still the promise this
+    // materialization consumed (a concurrent refetch may have replaced it).
+    if (this.#treeCache.get(canonicalRef) === entry) {
+      this.#treeCache.delete(canonicalRef);
+    }
+    return quill;
   }
 
   /**
-   * Internal: tree cache reader. On miss, fetches via `loadTree` and stores
+   * Internal: tree cache reader. On miss, fetches via `#loadTree` and stores
    * the in-flight Promise. On rejection, evicts so a retry can succeed.
    */
-  async #getTreeCached(
-    canonicalRef: string,
-  ): Promise<Map<string, Uint8Array>> {
+  #getTreeCached(canonicalRef: string): Promise<Map<string, Uint8Array>> {
     let entry = this.#treeCache.get(canonicalRef);
     if (entry === undefined) {
       const at = canonicalRef.indexOf("@");
       const name = canonicalRef.slice(0, at);
       const version = canonicalRef.slice(at + 1);
-      entry = this.loadTree(name, version).catch((err) => {
+      entry = this.#loadTree(name, version).catch((err) => {
         this.#treeCache.delete(canonicalRef);
         throw err;
       });
@@ -230,27 +213,25 @@ export class Quiver {
   }
 
   /**
-   * Returns the raw file tree for a ref (selector or canonical).
+   * Internal: validates name/version against the catalog, then delegates to
+   * the loader. Returns `Map<string, Uint8Array>` suitable for
+   * `Quill.fromTree(tree)`. Does NOT cache — caching lives in `#getTreeCached`.
    *
-   * Useful for consumers that need to pass a Quill into a different WASM
-   * linear memory — for example, a render build that operates independently
-   * from the core build used for editing. The caller re-materializes the Quill
-   * in their own memory context:
-   *
-   * ```ts
-   * const tree = await quiver.getTree(ref);
-   * const renderQuill = renderModule.Quill.fromTree(tree);
-   * ```
-   *
-   * The tree is cached alongside the materialized Quill (it is NOT evicted
-   * after `getQuill` resolves), so this call is I/O-free once the tree or
-   * Quill is in cache.
-   *
-   * Throws the same errors as `resolve` and `loadTree`.
+   * Throws `transport_error` if name/version not in catalog or I/O fails.
    */
-  async getTree(ref: string): Promise<Map<string, Uint8Array>> {
-    const canonicalRef = await this.resolve(ref);
-    return this.#getTreeCached(canonicalRef);
+  async #loadTree(
+    name: string,
+    version: string,
+  ): Promise<Map<string, Uint8Array>> {
+    const versions = this.#catalog.get(name);
+    if (!versions || !versions.includes(version)) {
+      throw new QuiverError(
+        "transport_error",
+        `Quill "${name}@${version}" not found in quiver "${this.name}"`,
+        { quiverName: this.name, version, ref: `${name}@${version}` },
+      );
+    }
+    return this.#loader.loadTree(name, version);
   }
 
   /**
@@ -258,7 +239,8 @@ export class Quiver {
    *
    * Network-bound only — does not materialize Quill instances and does not
    * require an engine. Subsequent `getQuill` calls reuse the cached trees,
-   * skipping the fetch. Rejects on the first fetch failure.
+   * skipping the fetch (the tree then evicts as its quill materializes).
+   * Rejects on the first fetch failure.
    */
   async warm(): Promise<void> {
     const promises: Promise<unknown>[] = [];

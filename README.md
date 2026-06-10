@@ -29,6 +29,24 @@ This keeps the author flow to a single command (`npm publish` or `git tag`)
 and puts the deployment-topology decision where it belongs: with the
 consumer.
 
+## The render model
+
+`@quillmark/quiver` produces quills; `@quillmark/wasm` renders them.
+
+- `quiver.getQuill(ref)` returns a core `Quill` — engine-free, portable data,
+  good for schema inspection, validation, blueprint access, and seeding. It is
+  the **only** way to obtain a quill from a quiver.
+- `const engine = new Engine()` (from the `@quillmark/wasm` root) renders it:
+  `await engine.render(quill, doc, opts?)`. The Engine routes on
+  `quill.backendId`, lazily loads that backend, clones the quill and document
+  into the backend's WASM memory, renders, and frees the clones — so a core
+  `Quill` passes straight to `engine.render` with no boundary-crossing step.
+
+`Engine.render`, `open`, `supportedFormats`, and `supportsCanvas` are all
+**async** — always `await` them. The canonical `Quill`/`Document`/`Engine`
+types are not re-exported from `@quillmark/quiver`; import them straight from
+the `@quillmark/wasm` peer dependency, which is the single source of truth.
+
 ## Authoring a quiver
 
 Lay out the source per the spec, then publish to npm (or push a git tag):
@@ -50,6 +68,14 @@ consumer's build. The harness uses `node:test` (built into Node 18+); no extra
 test-runner dependency required. If you prefer vitest/jest/mocha, write a
 12-line loop against the main API instead.
 
+```ts
+// quiver.test.ts — run with: node --test
+import { Engine } from "@quillmark/wasm";
+import { runQuiverTests } from "@quillmark/quiver/testing";
+
+runQuiverTests(import.meta.url, new Engine());
+```
+
 ## Manual validation (rendering samples)
 
 The CI harness proves every quill _compiles_; it does not produce output a
@@ -58,11 +84,11 @@ human can look at. To eyeball real renders, run the
 
 ```ts
 // scripts/preview.ts — run with: node --experimental-strip-types scripts/preview.ts
-import { Quillmark } from "@quillmark/wasm";
+import { Engine } from "@quillmark/wasm";
 import { renderQuiverSamples } from "@quillmark/quiver/preview";
 
 await renderQuiverSamples(import.meta.url, {
-  engine: new Quillmark(),
+  engine: new Engine(),
 });
 // → writes ./preview/<name>@<version>.<fmt> + index.html
 ```
@@ -82,7 +108,7 @@ quill name or canonical ref):
 
 ```ts
 await renderQuiverSamples(import.meta.url, {
-  engine: new Quillmark(),
+  engine: new Engine(),
   exclude: ["broken-quill"], // or: include: ["memo@1.0.0"]
 });
 ```
@@ -95,26 +121,16 @@ await renderQuiverSamples(import.meta.url, {
 ## Consuming a quiver (Node)
 
 ```ts
-import { Quill, Quillmark, Document } from "@quillmark/wasm";
-import { Quiver, loadRenderQuill } from "@quillmark/quiver";
-// (or import { Quiver } from "@quillmark/quiver/node" for Node factories)
+import { Engine, Document } from "@quillmark/wasm";
+import { Quiver } from "@quillmark/quiver/node";
 
 const quiver = await Quiver.fromPackage("@org/my-quiver");
-const engine = new Quillmark();
+const engine = new Engine();
 
 const doc = Document.fromMarkdown(markdownString);
-
-// Cross the core→render WASM-memory boundary as data: `loadRenderQuill`
-// fetches the cached tree and re-materializes the quill in the render build's
-// memory via the `Quill` you inject.
-const renderQuill = await loadRenderQuill(quiver, doc.quillRef, Quill);
-const result = engine.render(renderQuill, doc, { format: "pdf" });
+const quill = await quiver.getQuill(doc.quillRef);
+const result = await engine.render(quill, doc, { format: "pdf" });
 ```
-
-`Document.fromMarkdown` is called on the render build here, so `doc` already
-lives in render memory — no round-trip is needed. (A `Document` that originated
-in the core build must be crossed with `toRenderDocument(coreDoc, Document)`
-first; see the render-path snippet below.)
 
 `getQuill` accepts both selector refs (`"memo"`, `"memo@1"`) and canonical
 refs (`"memo@1.0.0"`). It resolves the selector, materializes the quill via
@@ -122,35 +138,31 @@ refs (`"memo@1.0.0"`). It resolves the selector, materializes the quill via
 ref for the lifetime of the `Quiver`. Concurrent calls for the same ref
 coalesce into a single load.
 
-`getQuill` uses `@quillmark/wasm/core` internally — the returned quill is
-suitable for schema inspection, validation, blueprint access, and seeding,
-but it lives in the core build's WASM linear memory. To render, both the quill
-and any core-seeded document must be crossed into the render build's memory with
-`loadRenderQuill` / `toRenderDocument`:
+The returned quill lives in the core build's WASM memory and is suitable for
+schema inspection, validation, blueprint access, and seeding. To render it,
+hand it straight to `engine.render(quill, doc)` — the Engine clones both
+handles into the backend on demand, so no separate boundary-crossing step is
+needed:
 
 ```ts
-import { Quill, Quillmark, Document } from "@quillmark/wasm";
-import { loadRenderQuill, toRenderDocument } from "@quillmark/quiver";
-
 // Editor path — core only, ~0.66 MB gzip
 const coreQuill = await quiver.getQuill(ref);
 coreQuill.schema; // ✓ schema, validate, blueprint, seed — all fine
-const coreDoc = coreQuill.seedDocument(); // core-memory Document
+const doc = coreQuill.seedDocument(); // a fully-filled example document
 
-// Render path — cross both handles into the engine's render memory as data.
-const renderQuill = await loadRenderQuill(quiver, ref, Quill);
-const renderDoc = toRenderDocument(coreDoc, Document); // round-trip through JSON
-const result = engine.render(renderQuill, renderDoc, { format: "pdf" });
+// Render path — the same core handles render directly.
+const result = await engine.render(coreQuill, doc, { format: "pdf" });
 ```
-
-Note: `Quill` must be a **value import** (not `import type { Quill }`) — it
-is used at runtime by `Quiver.getQuill`.
 
 If you only need the canonical ref (without materializing), use `resolve`:
 
 ```ts
 const canonicalRef = await quiver.resolve("memo"); // "memo@1.1.0"
 ```
+
+If you need the raw file tree (e.g. to drive a backend binary directly), call
+`(await quiver.getQuill(ref)).toTree()` on the core `Quill` — it is I/O-free
+once the quill is materialized.
 
 ## Consuming a quiver (browser)
 
@@ -169,10 +181,15 @@ await Quiver.build(
 
 ```ts
 // browser runtime
+import { Engine, Document } from "@quillmark/wasm";
 import { Quiver } from "@quillmark/quiver";
 
 const quiver = await Quiver.fromBuiltUrl("/quivers/my-quiver/");
+const engine = new Engine();
+
+const doc = Document.fromMarkdown(markdownString);
 const quill = await quiver.getQuill(doc.quillRef);
+const result = await engine.render(quill, doc, { format: "pdf" });
 ```
 
 ## Server-side runtime (Node, packed artifact on disk)
@@ -217,10 +234,6 @@ not materialize Quill instances — that happens lazily on the first
 `getQuill` call, which is microseconds. A subsequent `getQuill` reuses
 the cached tree, skipping the load.
 
-Trees are retained alongside the materialized Quill so that render-path
-consumers can call `getTree(ref)` without a second I/O round-trip. Both
-caches persist for the lifetime of the `Quiver` instance.
-
 ## Error handling
 
 All errors are instances of `QuiverError` with a `code` field.
@@ -249,8 +262,12 @@ construction, and per-ref caching in one call. Do **not** reach for
 `Quill.fromTree` directly inside a Quiver consumer:
 
 ```ts
+import { Quill } from "@quillmark/wasm";
+
 // wrong — bypasses Quiver's cache; duplicates work getQuill already does
-const tree = await quiver.loadTree(name, version);
+const tree = new Map<string, Uint8Array>();
+tree.set("Quill.yaml", new TextEncoder().encode("name: memo\n..."));
+// ...assemble the rest of the file tree by hand...
 const quill = Quill.fromTree(tree);
 
 // right
@@ -261,7 +278,12 @@ const quill = await quiver.getQuill(ref);
 a server route that receives a raw file tree over the network, or a test
 fixture that constructs a quill from a hand-rolled in-memory tree).
 
+<!-- TODO(release): delete this section once @quillmark/wasm publishes as 0.90.x -->
 ## RC / local tarball installs
+
+> **Temporary RC-only workaround.** This applies only while `@quillmark/wasm`
+> is consumed from a local pre-release tarball; it goes away once `0.90.x` is
+> published to npm.
 
 When developing against a local RC tarball whose `package.json` version has
 not yet been bumped to match the peer-dep range (e.g. the tarball declares

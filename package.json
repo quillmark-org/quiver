@@ -67,6 +67,7 @@
   },
   "scripts": {
     "build": "tsc",
+    "prepack": "rm -rf dist && tsc",
     "test": "vitest run",
     "lint": "tsc --noEmit"
   }
