@@ -30,7 +30,8 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Quiver } from "./node.js";
-import type { Engine, RenderResult, Diagnostic, OutputFormat } from "@quillmark/wasm";
+import { isQuillmarkError } from "@quillmark/wasm";
+import type { Engine, RenderResult, OutputFormat } from "@quillmark/wasm";
 
 /** Default directory rendered artifacts are written to. */
 const DEFAULT_OUT_DIR = "preview";
@@ -128,13 +129,12 @@ function isSelected(
 
 /**
  * Formats a thrown render error into one string per diagnostic. `@quillmark/wasm`
- * attaches a `diagnostics` array to its errors; fall back to the message when
- * an error carries none.
+ * throws `QuillmarkError`s (an `Error` carrying `diagnostics`); fall back to
+ * the message for anything else.
  */
 function failureReasons(err: unknown): string[] {
-  const diagnostics = (err as { diagnostics?: Diagnostic[] }).diagnostics;
-  if (Array.isArray(diagnostics) && diagnostics.length > 0) {
-    return diagnostics.map((d) => `${d.severity}: ${d.message}`);
+  if (isQuillmarkError(err) && err.diagnostics.length > 0) {
+    return err.diagnostics.map((d) => `${d.severity}: ${d.message}`);
   }
   return [(err as Error).message];
 }
