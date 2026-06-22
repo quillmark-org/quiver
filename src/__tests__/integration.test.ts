@@ -235,6 +235,153 @@ describe("Integration: fromBuiltUrl error cases", () => {
   });
 });
 
+describe("Integration: build → fromManifest (seed) → resolve → getQuill", () => {
+  const tmpDirs: string[] = [];
+  let mockFetch: { restore: () => void } | undefined;
+
+  afterEach(async () => {
+    if (mockFetch !== undefined) {
+      mockFetch.restore();
+      mockFetch = undefined;
+    }
+    for (const d of tmpDirs.splice(0)) {
+      await rm(d, { recursive: true, force: true });
+    }
+  });
+
+  /**
+   * Mock fetch that records every requested URL, so a test can assert that
+   * the pointer / manifest were never fetched.
+   */
+  function makeTrackingMockFetch(
+    dir: string,
+    baseUrl: string,
+  ): { restore: () => void; urls: string[] } {
+    const urls: string[] = [];
+    const original = globalThis.fetch;
+    const base = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
+
+    globalThis.fetch = (async (url: string) => {
+      urls.push(url);
+      if (!url.startsWith(base)) return new Response(null, { status: 404 });
+      const relativePath = url.slice(base.length);
+      try {
+        const bytes = await readFile(join(dir, relativePath));
+        return new Response(bytes.buffer, { status: 200 });
+      } catch {
+        return new Response(null, { status: 404 });
+      }
+    }) as typeof globalThis.fetch;
+
+    return {
+      urls,
+      restore: () => {
+        if (original !== undefined) globalThis.fetch = original;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        else delete (globalThis as any).fetch;
+      },
+    };
+  }
+
+  /** Read the build output's manifest bytes the way an SSR consumer would. */
+  async function readManifestBytes(outDir: string): Promise<Uint8Array> {
+    const pointer = JSON.parse(
+      new TextDecoder().decode(await readFile(join(outDir, "Quiver.json"))),
+    ) as { manifest: string };
+    return new Uint8Array(await readFile(join(outDir, pointer.manifest)));
+  }
+
+  it("fromManifest catalog matches source quiver", async () => {
+    const outDir = tempDir();
+    tmpDirs.push(outDir);
+    await Quiver.build(SAMPLE_FIXTURE, outDir);
+    const manifestBytes = await readManifestBytes(outDir);
+
+    const built = await Quiver.fromManifest(
+      "https://mock.cdn.example.com/my-quiver/",
+      manifestBytes,
+    );
+
+    expect(built.name).toBe("sample");
+    expect(built.quillNames().sort()).toEqual(["memo", "resume"]);
+    expect(built.versionsOf("memo").sort()).toEqual(["1.0.0", "1.1.0"]);
+    expect(built.versionsOf("resume")).toEqual(["2.0.0"]);
+  });
+
+  it("seeding never fetches Quiver.json or manifest.*.json", async () => {
+    const outDir = tempDir();
+    tmpDirs.push(outDir);
+    await Quiver.build(SAMPLE_FIXTURE, outDir);
+    const manifestBytes = await readManifestBytes(outDir);
+
+    const baseUrl = "https://mock.cdn.example.com/my-quiver/";
+    const tracker = makeTrackingMockFetch(outDir, baseUrl);
+    mockFetch = tracker;
+
+    const built = await Quiver.fromManifest(baseUrl, manifestBytes);
+    // Drive a lazy bundle fetch so we can see what the transport requests.
+    const { restore } = mockQuillFromTree();
+    try {
+      await built.getQuill("memo@1.0.0");
+    } finally {
+      restore();
+    }
+
+    // No pointer / manifest request was ever made.
+    expect(tracker.urls.some((u) => u.endsWith("/Quiver.json"))).toBe(false);
+    expect(tracker.urls.some((u) => /manifest\.[0-9a-f]+\.json$/.test(u))).toBe(
+      false,
+    );
+    // But a content-addressed bundle, relative to baseUrl, was fetched.
+    expect(
+      tracker.urls.some(
+        (u) => u.startsWith(baseUrl) && /memo@1\.0\.0\.[0-9a-f]+\.zip$/.test(u),
+      ),
+    ).toBe(true);
+  });
+
+  it("fromManifest + getQuill builds a quill from the correct tree", async () => {
+    const outDir = tempDir();
+    tmpDirs.push(outDir);
+    await Quiver.build(SAMPLE_FIXTURE, outDir);
+    const manifestBytes = await readManifestBytes(outDir);
+
+    const baseUrl = "https://mock.cdn.example.com/my-quiver/";
+    mockFetch = makeMockFetch(outDir, baseUrl);
+
+    const built = await Quiver.fromManifest(baseUrl, manifestBytes);
+    const { calls, restore } = mockQuillFromTree();
+    try {
+      const quill = await built.getQuill("memo@1.0.0");
+      expect(quill).toBeDefined();
+      expect(calls).toHaveLength(1);
+      expect(calls[0]!.has("Quill.yaml")).toBe(true);
+    } finally {
+      restore();
+    }
+  });
+
+  it("fromManifest with malformed manifest bytes throws quiver_invalid", async () => {
+    await expect(
+      Quiver.fromManifest(
+        "https://mock.cdn.example.com/my-quiver/",
+        new TextEncoder().encode("not-json"),
+      ),
+    ).rejects.toThrow(expect.objectContaining({ code: "quiver_invalid" }));
+  });
+
+  it("fromManifest rejects file:// URLs with transport_error", async () => {
+    const outDir = tempDir();
+    tmpDirs.push(outDir);
+    await Quiver.build(SAMPLE_FIXTURE, outDir);
+    const manifestBytes = await readManifestBytes(outDir);
+
+    await expect(
+      Quiver.fromManifest("file:///tmp/quiver/", manifestBytes),
+    ).rejects.toThrow(expect.objectContaining({ code: "transport_error" }));
+  });
+});
+
 describe("Integration: build → fromBuiltDir → resolve → getQuill", () => {
   const tmpDirs: string[] = [];
 

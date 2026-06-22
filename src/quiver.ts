@@ -94,6 +94,41 @@ export class Quiver {
     return loadBuiltQuiver(transport);
   }
 
+  /**
+   * Browser-safe factory. Builds the catalog from caller-provided manifest
+   * bytes, skipping the `Quiver.json` pointer fetch entirely. Bundles and
+   * fonts are still fetched lazily and content-addressed, relative to
+   * `baseUrl`, exactly as with `fromBuiltUrl`.
+   *
+   * Use this when the manifest is already in hand at build time (e.g. an SSR
+   * consumer that read it during its own build): seeding avoids the
+   * stable-named `Quiver.json` pointer, which a CDN edge or browser can serve
+   * stale after a release and silently pin clients to the old catalog.
+   *
+   * Origin-relative `baseUrl`s (e.g. `/quivers/foo/`) are accepted in browser
+   * environments. `file://` URLs are rejected — to load build output from disk
+   * in Node, use `Quiver.fromBuiltDir(path)` from `@quillmark/quiver/node`.
+   *
+   * Throws `quiver_invalid` if the manifest bytes are malformed, and
+   * `transport_error` on `file://` URLs or on later network/HTTP failures when
+   * a bundle is fetched.
+   */
+  static async fromManifest(
+    baseUrl: string,
+    manifestBytes: Uint8Array,
+  ): Promise<Quiver> {
+    if (baseUrl.startsWith("file://")) {
+      throw new QuiverError(
+        "transport_error",
+        `Quiver.fromManifest requires an http(s):// or origin-relative baseUrl; got "${baseUrl}". For local build output, use Quiver.fromBuiltDir from @quillmark/quiver/node.`,
+      );
+    }
+    const { HttpTransport } = await import("./transports/http-transport.js");
+    const { seedBuiltQuiver } = await import("./built-loader.js");
+    const transport = new HttpTransport(baseUrl);
+    return seedBuiltQuiver(transport, manifestBytes);
+  }
+
   /** Returns all known quill names, sorted lexicographically. */
   quillNames(): string[] {
     return [...this.#catalog.keys()].sort();

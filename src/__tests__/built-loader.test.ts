@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, afterEach } from "vitest";
-import { loadBuiltQuiver } from "../built-loader.js";
+import { loadBuiltQuiver, seedBuiltQuiver } from "../built-loader.js";
 import { packFiles } from "../bundle.js";
 import { QuiverError } from "../errors.js";
 import type { BuiltTransport } from "../built-loader.js";
@@ -462,6 +462,53 @@ describe("loadBuiltQuiver — path validation (security)", () => {
       ),
     });
     await expect(loadBuiltQuiver(transport)).rejects.toThrow(
+      expect.objectContaining({ code: "quiver_invalid" }),
+    );
+  });
+});
+
+describe("seedBuiltQuiver — manifest seeding (no pointer fetch)", () => {
+  it("builds the same catalog as loadBuiltQuiver, without fetching Quiver.json", async () => {
+    const manifestBytes = makeManifest("sample", [
+      { name: "memo", version: "1.0.0", bundle: "memo@1.0.0.aabbcc.zip" },
+      { name: "memo", version: "1.1.0", bundle: "memo@1.1.0.ddeeff.zip" },
+      { name: "resume", version: "2.0.0", bundle: "resume@2.0.0.112233.zip" },
+    ]);
+
+    // Transport intentionally has NO Quiver.json and NO manifest file.
+    const transport = new MemTransport({
+      "memo@1.0.0.aabbcc.zip": makeBundle({ "Quill.yaml": "name: memo\n" }),
+      "memo@1.1.0.ddeeff.zip": makeBundle({ "Quill.yaml": "name: memo\n" }),
+      "resume@2.0.0.112233.zip": makeBundle({ "Quill.yaml": "name: resume\n" }),
+    });
+
+    const q = seedBuiltQuiver(transport, manifestBytes);
+
+    expect(q.name).toBe("sample");
+    expect(q.quillNames()).toEqual(["memo", "resume"]);
+    expect(q.versionsOf("memo")).toEqual(["1.1.0", "1.0.0"]);
+
+    // No pointer or manifest request was made building the catalog.
+    expect(transport.fetchLog).toEqual([]);
+  });
+
+  it("fetches bundles lazily and content-addressed on getQuill", async () => {
+    const manifestBytes = makeManifest("sample", [
+      { name: "memo", version: "1.0.0", bundle: "memo@1.0.0.aabbcc.zip" },
+    ]);
+    const transport = new MemTransport({
+      "memo@1.0.0.aabbcc.zip": makeBundle({ "Quill.yaml": "name: memo\n" }),
+    });
+
+    const q = seedBuiltQuiver(transport, manifestBytes);
+    await loadTreeViaGetQuill(q, "memo", "1.0.0");
+
+    expect(transport.fetchLog).toEqual(["memo@1.0.0.aabbcc.zip"]);
+  });
+
+  it("malformed manifest bytes → quiver_invalid", () => {
+    const transport = new MemTransport({});
+    expect(() => seedBuiltQuiver(transport, enc.encode("not-json"))).toThrow(
       expect.objectContaining({ code: "quiver_invalid" }),
     );
   });
