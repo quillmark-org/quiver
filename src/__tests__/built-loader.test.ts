@@ -109,7 +109,7 @@ function buildMinimalTransport(): MemTransport {
   ]);
 
   const transport = new MemTransport({
-    "Quiver.json": makePointer("manifest.abc123.json"),
+    "latest.json": makePointer("manifest.abc123.json"),
     "manifest.abc123.json": manifestBytes,
     "memo@1.0.0.aabbcc.zip": memoBundle,
     "memo@1.1.0.ddeeff.zip": makeBundle({ "Quill.yaml": "name: memo\n" }),
@@ -177,7 +177,7 @@ describe("loadBuiltQuiver — tree rehydration", () => {
     ]);
 
     const transport = new MemTransport({
-      "Quiver.json": makePointer("manifest.abc123.json"),
+      "latest.json": makePointer("manifest.abc123.json"),
       "manifest.abc123.json": manifestBytes,
       "memo@1.0.0.aabbcc.zip": memoBundle,
       [`store/${fontHash}`]: fontBytes,
@@ -222,7 +222,7 @@ describe("loadBuiltQuiver — font coalescing", () => {
     ]);
 
     const transport = new MemTransport({
-      "Quiver.json": makePointer("manifest.abc.json"),
+      "latest.json": makePointer("manifest.abc.json"),
       "manifest.abc.json": manifestBytes,
       "quillA@1.0.0.aaa.zip": bundleA,
       "quillB@1.0.0.bbb.zip": bundleB,
@@ -248,34 +248,34 @@ describe("loadBuiltQuiver — font coalescing", () => {
 });
 
 describe("loadBuiltQuiver — invalid pointer", () => {
-  it("missing Quiver.json → transport_error", async () => {
+  it("missing latest.json → transport_error", async () => {
     const transport = new MemTransport({});
     await expect(loadBuiltQuiver(transport)).rejects.toThrow(
       expect.objectContaining({ code: "transport_error" }),
     );
   });
 
-  it("malformed Quiver.json (not JSON) → quiver_invalid", async () => {
+  it("malformed latest.json (not JSON) → quiver_invalid", async () => {
     const transport = new MemTransport({
-      "Quiver.json": enc.encode("not-json"),
+      "latest.json": enc.encode("not-json"),
     });
     await expect(loadBuiltQuiver(transport)).rejects.toThrow(
       expect.objectContaining({ code: "quiver_invalid" }),
     );
   });
 
-  it("Quiver.json missing manifest field → quiver_invalid", async () => {
+  it("latest.json missing manifest field → quiver_invalid", async () => {
     const transport = new MemTransport({
-      "Quiver.json": enc.encode(JSON.stringify({ other: "value" })),
+      "latest.json": enc.encode(JSON.stringify({ other: "value" })),
     });
     await expect(loadBuiltQuiver(transport)).rejects.toThrow(
       expect.objectContaining({ code: "quiver_invalid" }),
     );
   });
 
-  it("Quiver.json with extra unknown field → quiver_invalid", async () => {
+  it("latest.json with extra unknown field → quiver_invalid", async () => {
     const transport = new MemTransport({
-      "Quiver.json": enc.encode(
+      "latest.json": enc.encode(
         JSON.stringify({ manifest: "manifest.abc.json", extra: true }),
       ),
     });
@@ -288,7 +288,7 @@ describe("loadBuiltQuiver — invalid pointer", () => {
 describe("loadBuiltQuiver — invalid manifest", () => {
   function transportWith(manifestOverride: Record<string, unknown>): MemTransport {
     return new MemTransport({
-      "Quiver.json": makePointer("manifest.abc.json"),
+      "latest.json": makePointer("manifest.abc.json"),
       "manifest.abc.json": enc.encode(JSON.stringify(manifestOverride)),
     });
   }
@@ -339,7 +339,7 @@ describe("loadBuiltQuiver — missing bundle or store entry", () => {
       { name: "foo", version: "1.0.0", bundle: "foo@1.0.0.deadbeef.zip" },
     ]);
     const transport = new MemTransport({
-      "Quiver.json": makePointer("manifest.abc.json"),
+      "latest.json": makePointer("manifest.abc.json"),
       "manifest.abc.json": manifestBytes,
       // bundle NOT included
     });
@@ -361,7 +361,7 @@ describe("loadBuiltQuiver — missing bundle or store entry", () => {
       },
     ]);
     const transport = new MemTransport({
-      "Quiver.json": makePointer("manifest.abc.json"),
+      "latest.json": makePointer("manifest.abc.json"),
       "manifest.abc.json": manifestBytes,
       "foo@1.0.0.aaa.zip": memoBundle,
       // store/cafebabecafebabecafebabecafebabe NOT included
@@ -377,7 +377,7 @@ describe("loadBuiltQuiver — missing bundle or store entry", () => {
 describe("loadBuiltQuiver — path validation (security)", () => {
   it("pointer manifest with path traversal → quiver_invalid", async () => {
     const transport = new MemTransport({
-      "Quiver.json": enc.encode(
+      "latest.json": enc.encode(
         JSON.stringify({ manifest: "../../etc/passwd" }),
       ),
     });
@@ -388,7 +388,7 @@ describe("loadBuiltQuiver — path validation (security)", () => {
 
   it("pointer manifest with absolute path → quiver_invalid", async () => {
     const transport = new MemTransport({
-      "Quiver.json": enc.encode(
+      "latest.json": enc.encode(
         JSON.stringify({ manifest: "/etc/passwd" }),
       ),
     });
@@ -399,7 +399,7 @@ describe("loadBuiltQuiver — path validation (security)", () => {
 
   it("manifest bundle with path traversal → quiver_invalid", async () => {
     const transport = new MemTransport({
-      "Quiver.json": makePointer("manifest.abc123.json"),
+      "latest.json": makePointer("manifest.abc123.json"),
       "manifest.abc123.json": enc.encode(
         JSON.stringify({
           version: 1,
@@ -422,7 +422,7 @@ describe("loadBuiltQuiver — path validation (security)", () => {
 
   it("manifest font hash with path traversal → quiver_invalid", async () => {
     const transport = new MemTransport({
-      "Quiver.json": makePointer("manifest.abc123.json"),
+      "latest.json": makePointer("manifest.abc123.json"),
       "manifest.abc123.json": enc.encode(
         JSON.stringify({
           version: 1,
@@ -445,7 +445,7 @@ describe("loadBuiltQuiver — path validation (security)", () => {
 
   it("manifest font hash that is not 32 hex chars → quiver_invalid", async () => {
     const transport = new MemTransport({
-      "Quiver.json": makePointer("manifest.abc123.json"),
+      "latest.json": makePointer("manifest.abc123.json"),
       "manifest.abc123.json": enc.encode(
         JSON.stringify({
           version: 1,
@@ -468,47 +468,28 @@ describe("loadBuiltQuiver — path validation (security)", () => {
 });
 
 describe("seedBuiltQuiver — manifest seeding (no pointer fetch)", () => {
-  it("builds the same catalog as loadBuiltQuiver, without fetching Quiver.json", async () => {
+  it("builds the catalog without fetching the pointer, then fetches bundles lazily", async () => {
     const manifestBytes = makeManifest("sample", [
       { name: "memo", version: "1.0.0", bundle: "memo@1.0.0.aabbcc.zip" },
       { name: "memo", version: "1.1.0", bundle: "memo@1.1.0.ddeeff.zip" },
-      { name: "resume", version: "2.0.0", bundle: "resume@2.0.0.112233.zip" },
     ]);
-
-    // Transport intentionally has NO Quiver.json and NO manifest file.
+    // Transport has NO pointer and NO manifest file — only bundles.
     const transport = new MemTransport({
       "memo@1.0.0.aabbcc.zip": makeBundle({ "Quill.yaml": "name: memo\n" }),
       "memo@1.1.0.ddeeff.zip": makeBundle({ "Quill.yaml": "name: memo\n" }),
-      "resume@2.0.0.112233.zip": makeBundle({ "Quill.yaml": "name: resume\n" }),
     });
 
     const q = seedBuiltQuiver(transport, manifestBytes);
-
     expect(q.name).toBe("sample");
-    expect(q.quillNames()).toEqual(["memo", "resume"]);
     expect(q.versionsOf("memo")).toEqual(["1.1.0", "1.0.0"]);
+    expect(transport.fetchLog).toEqual([]); // catalog built without any fetch
 
-    // No pointer or manifest request was made building the catalog.
-    expect(transport.fetchLog).toEqual([]);
-  });
-
-  it("fetches bundles lazily and content-addressed on getQuill", async () => {
-    const manifestBytes = makeManifest("sample", [
-      { name: "memo", version: "1.0.0", bundle: "memo@1.0.0.aabbcc.zip" },
-    ]);
-    const transport = new MemTransport({
-      "memo@1.0.0.aabbcc.zip": makeBundle({ "Quill.yaml": "name: memo\n" }),
-    });
-
-    const q = seedBuiltQuiver(transport, manifestBytes);
     await loadTreeViaGetQuill(q, "memo", "1.0.0");
-
     expect(transport.fetchLog).toEqual(["memo@1.0.0.aabbcc.zip"]);
   });
 
   it("malformed manifest bytes → quiver_invalid", () => {
-    const transport = new MemTransport({});
-    expect(() => seedBuiltQuiver(transport, enc.encode("not-json"))).toThrow(
+    expect(() => seedBuiltQuiver(new MemTransport({}), enc.encode("x"))).toThrow(
       expect.objectContaining({ code: "quiver_invalid" }),
     );
   });
@@ -517,7 +498,7 @@ describe("seedBuiltQuiver — manifest seeding (no pointer fetch)", () => {
 describe("loadBuiltQuiver — duplicate entry detection", () => {
   it("duplicate name@version in manifest → quiver_invalid", async () => {
     const transport = new MemTransport({
-      "Quiver.json": makePointer("manifest.abc123.json"),
+      "latest.json": makePointer("manifest.abc123.json"),
       "manifest.abc123.json": enc.encode(
         JSON.stringify({
           version: 1,
@@ -546,7 +527,7 @@ describe("loadBuiltQuiver — duplicate entry detection", () => {
 
   it("same name but different versions is not a duplicate", async () => {
     const transport = new MemTransport({
-      "Quiver.json": makePointer("manifest.abc123.json"),
+      "latest.json": makePointer("manifest.abc123.json"),
       "manifest.abc123.json": makeManifest("test", [
         { name: "foo", version: "1.0.0", bundle: "foo@1.0.0.aabbcc.zip" },
         { name: "foo", version: "2.0.0", bundle: "foo@2.0.0.ddeeff.zip" },

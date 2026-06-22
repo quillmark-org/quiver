@@ -192,9 +192,9 @@ const quill = await quiver.getQuill(doc.quillRef);
 const result = await engine.render(quill, doc, { format: "pdf" });
 ```
 
-## SSR seeding (skip the `Quiver.json` pointer)
+## SSR seeding (skip the `latest.json` pointer)
 
-`Quiver.fromBuiltUrl(url)` first fetches `<url>/Quiver.json` — a stable-named,
+`Quiver.fromBuiltUrl(url)` first fetches `<url>/latest.json` — a stable-named,
 non-content-addressed pointer to the current manifest — before fetching the
 manifest itself. Because that one filename is stable, a CDN edge or browser
 cache can serve a **stale pointer** after a release and silently pin the
@@ -204,16 +204,16 @@ one serving layer at a time.
 If you already hold the manifest bytes at build time — a common case for SSR
 consumers, which read the built artifact during their own build — seed the
 catalog from them directly with `Quiver.fromManifest`. It never requests
-`Quiver.json`; bundles and fonts are still fetched lazily and
+`latest.json`; bundles and fonts are still fetched lazily and
 content-addressed, relative to `baseUrl`, exactly as with `fromBuiltUrl`:
 
 ```ts
 // Server build step — read the manifest the build wrote.
-// build-output/Quiver.json → { "manifest": "manifest.<hash>.json" }
+// build-output/latest.json → { "manifest": "manifest.<hash>.json" }
 import { readFile } from "node:fs/promises";
 
 const { manifest } = JSON.parse(
-  await readFile("./public/quivers/my-quiver/Quiver.json", "utf8"),
+  await readFile("./public/quivers/my-quiver/latest.json", "utf8"),
 );
 const manifestBytes = new Uint8Array(
   await readFile(`./public/quivers/my-quiver/${manifest}`),

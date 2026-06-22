@@ -95,23 +95,13 @@ export class Quiver {
   }
 
   /**
-   * Browser-safe factory. Builds the catalog from caller-provided manifest
-   * bytes, skipping the `Quiver.json` pointer fetch entirely. Bundles and
-   * fonts are still fetched lazily and content-addressed, relative to
-   * `baseUrl`, exactly as with `fromBuiltUrl`.
+   * Browser-safe factory. Seeds the catalog from caller-provided manifest
+   * bytes — never fetches `latest.json` — then fetches bundles lazily and
+   * content-addressed, relative to `baseUrl`, like `fromBuiltUrl`. For SSR
+   * consumers that already hold the manifest at build time.
    *
-   * Use this when the manifest is already in hand at build time (e.g. an SSR
-   * consumer that read it during its own build): seeding avoids the
-   * stable-named `Quiver.json` pointer, which a CDN edge or browser can serve
-   * stale after a release and silently pin clients to the old catalog.
-   *
-   * Origin-relative `baseUrl`s (e.g. `/quivers/foo/`) are accepted in browser
-   * environments. `file://` URLs are rejected — to load build output from disk
-   * in Node, use `Quiver.fromBuiltDir(path)` from `@quillmark/quiver/node`.
-   *
-   * Throws `quiver_invalid` if the manifest bytes are malformed, and
-   * `transport_error` on `file://` URLs or on later network/HTTP failures when
-   * a bundle is fetched.
+   * Throws `quiver_invalid` on malformed manifest bytes, `transport_error`
+   * on a `file://` baseUrl or a later bundle fetch failure.
    */
   static async fromManifest(
     baseUrl: string,
