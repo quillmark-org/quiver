@@ -5,7 +5,7 @@
  * Commands:
  *   quiver build [--out <dir>]
  *   quiver test
- *   quiver preview [--out <dir>] [--format <fmt>] [--quiet]
+ *   quiver preview [--out <dir>] [--format pdf|svg|png] [--quiet]
  *                  [--include <ref>...] [--exclude <ref>...]
  *
  * Engine discovery (for `test` and `preview`):
@@ -19,7 +19,24 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Quiver } from "../node.js";
 import { renderQuiverSamples } from "../preview.js";
-import type { Engine } from "@quillmark/wasm";
+import type { Engine, OutputFormat } from "@quillmark/wasm";
+
+/**
+ * Formats the engine can emit. `txt` was retired in `@quillmark/wasm` 0.98;
+ * passing it through reaches the backend as an unsupported format and surfaces
+ * an opaque WASM error with no diagnostics, so `--format` is validated here
+ * instead — a CLI string is the one place the type system cannot.
+ */
+const OUTPUT_FORMATS = ["pdf", "svg", "png"] as const;
+
+function parseFormat(value: string): OutputFormat {
+  if (!(OUTPUT_FORMATS as readonly string[]).includes(value)) {
+    throw new Error(
+      `unsupported --format "${value}" (expected ${OUTPUT_FORMATS.join(", ")})`,
+    );
+  }
+  return value as OutputFormat;
+}
 
 // ---------------------------------------------------------------------------
 // Arg parsing helpers
@@ -144,7 +161,8 @@ async function preview(): Promise<void> {
   const cwd = process.cwd();
   const engine = await loadEngine(cwd);
   const outDir = flag("--out");
-  const format = flag("--format");
+  const formatArg = flag("--format");
+  const format = formatArg !== undefined ? parseFormat(formatArg) : undefined;
   const quiet = hasFlag("--quiet");
   const include = multiFlag("--include");
   const exclude = multiFlag("--exclude");
@@ -168,7 +186,7 @@ function usage(): void {
       "Usage:",
       "  quiver build [--out <dir>]",
       "  quiver test",
-      "  quiver preview [--out <dir>] [--format <fmt>] [--quiet]",
+      "  quiver preview [--out <dir>] [--format pdf|svg|png] [--quiet]",
       "                 [--include <ref>...] [--exclude <ref>...]",
     ].join("\n"),
   );

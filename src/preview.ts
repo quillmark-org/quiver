@@ -18,10 +18,12 @@
  *   // → open ./preview/index.html
  *
  * The sample document is the illustrative example seeded by
- * `quill.seedDocument()` for each quill version — a fully filled-out,
- * always-renderable document (the blueprint itself carries `<must-fill>`
- * sentinels and is not renderable). Every quill always seeds an example, so no
- * quills are skipped for lack of a sample document.
+ * `quill.seedDocument()` for each quill version — a fully filled-out document
+ * carrying real example values, as opposed to the blueprint, whose unfilled
+ * fields are tagged `!must_fill`. (Since 0.93 a leftover marker is a non-fatal
+ * `validation::must_fill` warning rather than a render blocker, so it surfaces
+ * in `warnings` instead of failing the sample.) Every quill always seeds an
+ * example, so no quills are skipped for lack of a sample document.
  *
  * A `.gitignore` is written into `outDir` so the generated artifacts are not
  * accidentally committed.
@@ -45,8 +47,14 @@ export interface RenderQuiverSamplesOptions {
   engine: Engine;
   /** Directory to write rendered artifacts into. Default: `preview`. */
   outDir?: string;
-  /** Force an output format (`pdf`/`svg`/`png`/`txt`). Default: engine's choice. */
-  format?: string;
+  /**
+   * Force an output format (`pdf`/`svg`/`png`). Default: engine's choice.
+   *
+   * Typed as the engine's `OutputFormat` so an unsupported value is a compile
+   * error rather than an opaque WASM failure at render time — `txt` was
+   * retired in `@quillmark/wasm` 0.98 and no longer round-trips.
+   */
+  format?: OutputFormat;
   /** Suppress the console summary. Default: false. */
   quiet?: boolean;
   /**
@@ -158,7 +166,7 @@ async function renderOne(
       result = await opts.engine.render(
         quill,
         doc,
-        opts.format ? { format: opts.format as OutputFormat } : undefined,
+        opts.format ? { format: opts.format } : undefined,
       );
     } finally {
       doc.free();

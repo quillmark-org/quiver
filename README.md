@@ -94,9 +94,9 @@ await renderQuiverSamples(import.meta.url, {
 ```
 
 It renders every quill's illustrative example document (seeded via
-`quill.seedDocument()` — a fully filled-out, always-renderable sample; the
-blueprint itself carries `<must-fill>` sentinels and is not directly
-renderable), writes the artifacts
+`quill.seedDocument()` — a fully filled-out sample carrying real example
+values, as opposed to the blueprint, whose unfilled fields are tagged
+`!must_fill`), writes the artifacts
 to `outDir` (default `preview/`), and emits an `index.html`
 gallery. A `.gitignore` is written into `outDir` so the generated artifacts
 are never accidentally committed. A quill that throws is recorded as failed —
